@@ -1,0 +1,49 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <h2>Новое правило / шаблон обработки</h2>
+  <p class="meta">
+    Рекомендуемый путь: сначала использовать <a href="{{ url_for('web.instruction_assistant') }}">AI-помощник</a>, а затем сохранить готовую инструкцию. Здесь можно создать правило вручную.
+  </p>
+
+  <form method="post">
+    <div class="field">
+      <label for="name">Название правила</label>
+      <input id="name" name="name" type="text" placeholder="Например: Кросс-таблица по филиалам и месяцам" required>
+    </div>
+
+    <div class="field">
+      <label for="domain">Сфера / домен</label>
+      <input id="domain" name="domain" type="text" value="universal" placeholder="universal / finance / production / hr">
+    </div>
+
+    <div class="field">
+      <label for="raw_user_prompt">Исходная формулировка пользователя</label>
+      <textarea id="raw_user_prompt" name="raw_user_prompt" rows="4" placeholder="Можно сохранить первоначальную неточную инструкцию пользователя"></textarea>
+    </div>
+
+    <div class="field">
+      <label for="prompt">Итоговая инструкция для ИИ</label>
+      <textarea id="prompt" name="prompt" rows="9" placeholder="Опишите, где находятся заголовки, где начинаются данные, какие строки удалить, какие колонки преобразовать в строки" required></textarea>
+    </div>
+
+    <div class="field inline-checks">
+      <label><input type="checkbox" name="use_raw_data" value="1" checked> Работать с сырыми данными без заголовков</label>
+    </div>
+
+    <div class="field">
+      <label for="sheet_name">Название листа Excel (опционально)</label>
+      <input id="sheet_name" name="sheet_name" type="text" placeholder="Например: Лист1">
+    </div>
+
+    <details style="margin-bottom:16px;">
+      <summary>Расширенно: JSON-правило</summary>
+      <div class="field" style="margin-top:12px;">
+        <label for="generated_rule">Формализованное правило</label>
+        <textarea id="generated_rule" name="generated_rule" rows="12" placeholder='{"table_type":"cross_table","header_rows":[0,1],"data_start_row":2}'></textarea>
+      </div>
+    </details>
+
+    <button type="submit">Сохранить правило</button>
+  </form>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <h2>Редактировать правило</h2>
+  <p class="meta">
+    Здесь хранится не только промпт, но и формализованное JSON-правило. Если JSON пустой, система будет использовать текстовую инструкцию и обучающие примеры.
+  </p>
+
+  <form method="post">
+    <div class="field">
+      <label for="name">Название правила</label>
+      <input id="name" name="name" type="text" value="{{ rule.name }}" required>
+    </div>
+
+    <div class="field">
+      <label for="domain">Сфера / домен</label>
+      <input id="domain" name="domain" type="text" value="{{ rule.domain or 'universal' }}">
+    </div>
+
+    <div class="field">
+      <label for="raw_user_prompt">Исходная формулировка пользователя</label>
+      <textarea id="raw_user_prompt" name="raw_user_prompt" rows="4">{{ rule.raw_user_prompt or '' }}</textarea>
+    </div>
+
+    <div class="field">
+      <label for="prompt">Итоговая инструкция для ИИ</label>
+      <textarea id="prompt" name="prompt" rows="10" required>{{ rule.ai_improved_instruction or rule.prompt or '' }}</textarea>
+    </div>
+
+    <div class="field inline-checks">
+      <label>
+        <input type="checkbox" name="use_raw_data" value="1" {% if rule.use_raw_data %}checked{% endif %}>
+        Работать с сырыми данными (без автоматического выбора первой строки как заголовка)
+      </label>
+    </div>
+
+    <div class="field">
+      <label for="sheet_name">Название листа Excel (опционально)</label>
+      <input id="sheet_name" name="sheet_name" type="text" value="{{ rule.sheet_name or '' }}" placeholder="Например: Лист1">
+    </div>
+
+    <details open style="margin-bottom:16px;">
+      <summary>JSON-правило</summary>
+      <div class="field" style="margin-top:12px;">
+        <label for="generated_rule">Формализованное правило</label>
+        <textarea id="generated_rule" name="generated_rule" rows="14">{{ generated_rule_json }}</textarea>
+      </div>
+    </details>
+
+    <button type="submit">Сохранить изменения</button>
+  </form>
+
+  <p style="margin-top: 16px;">
+    <a href="{{ url_for('web.rules_list') }}">← Вернуться к списку правил</a>
+  </p>
+{% endblock %}

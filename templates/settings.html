@@ -1,0 +1,43 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <h2>Настройки</h2>
+
+  <div style="margin-bottom: 32px;">
+    <h3 style="font-size: 18px; margin-bottom: 12px;">Обучение модели</h3>
+    <p class="meta">
+      Система поддерживает одиночное и пакетное добавление обучающих примеров. Для массовой загрузки используйте ZIP-архив
+      с парами <code>*_source.xlsx</code> и <code>*_target.xlsx</code> или наборы файлов source/target.
+    </p>
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0;">
+      <div style="padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
+        <strong>{{ training_stats.total }}</strong><br><span class="meta">всего</span>
+      </div>
+      <div style="padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
+        <strong>{{ training_stats.available }}</strong><br><span class="meta">доступно</span>
+      </div>
+      <div style="padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
+        <strong>{{ training_stats.with_rule }}</strong><br><span class="meta">с правилом</span>
+      </div>
+      <div style="padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
+        <strong>{{ training_stats.broken }}</strong><br><span class="meta">битых</span>
+      </div>
+    </div>
+    <p style="margin-top: 16px;">
+      <a href="{{ url_for('web.training') }}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: 500;">
+        Открыть обучение модели
+      </a>
+    </p>
+  </div>
+
+  <div style="margin-bottom: 32px;">
+    <h3 style="font-size: 18px; margin-bottom: 12px;">Информация о системе</h3>
+    <ul class="meta">
+      <li>Папка входных файлов: <code>{{ config.INPUT_DIR }}</code></li>
+      <li>Папка выходных файлов: <code>{{ config.OUTPUT_DIR }}</code></li>
+      <li>Папка обучающих примеров: <code>{{ config.TRAINING_EXAMPLES_DIR }}</code></li>
+      <li>Файл истории: <code>{{ config.HISTORY_FILE }}</code></li>
+      <li>Режим ИИ: <code>{{ config.AI_BACKEND }}</code></li>
+    </ul>
+  </div>
+{% endblock %}

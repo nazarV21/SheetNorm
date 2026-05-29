@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <h2>История конвертаций</h2>
+  
+  {% if items %}
+  <div style="margin-bottom: 16px;">
+    <form method="post" action="{{ url_for('web.clear_history') }}" style="display: inline;">
+      <button type="submit" 
+              onclick="return confirm('Вы уверены, что хотите очистить всю историю? Это действие нельзя отменить.');"
+              style="padding: 8px 16px; background:rgb(219, 78, 78); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">
+        Очистить историю
+      </button>
+    </form>
+  </div>
+  {% endif %}
+  
+  {% if not items %}
+    <p class="meta">История пока пуста. Выполните первую конвертацию.</p>
+  {% else %}
+    <div class="history-table-wrapper">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Дата и время</th>
+            <th>Исходный файл</th>
+            <th>Правило</th>
+            <th>Результат</th>
+            <th>Строк</th>
+            <th>Статус</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+            <tr>
+              <td>{{ item.created_at }}</td>
+              <td>{{ item.source_filename }}</td>
+              <td>{{ item.rule_name or 'Без правил' }}</td>
+              <td>
+                {% if item.output_filename %}
+                  <a href="{{ url_for('web.download', filename=item.output_filename) }}">{{ item.output_filename }}</a>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ item.rows or '—' }}</td>
+              <td>{{ item.status or '—' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endblock %}
+
+

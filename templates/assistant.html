@@ -1,0 +1,329 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <h2>AI-помощник по инструкции</h2>
+  <p class="meta">
+    Пользователь работает только с текстовой инструкцией. JSON-правило скрыто: система пересобирает его автоматически после каждого изменения инструкции.
+  </p>
+
+  <form method="post" enctype="multipart/form-data" class="panel">
+    <h3><span class="step-badge">Шаг 1</span>Загрузить файл и описать задачу</h3>
+    <div class="field">
+      <label for="file">Excel-файл для анализа</label>
+      <div class="file-row">
+        <label class="file-label">
+          <span>Выбрать файл</span>
+          <input id="file" type="file" name="file" accept=".xlsx,.xls" required onchange="updateFileName(this, 'assistant-file-name')">
+        </label>
+        <span class="file-name" id="assistant-file-name">Файл не выбран</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="sheet_name">Лист Excel (опционально)</label>
+      <input id="sheet_name" name="sheet_name" type="text" placeholder="Оставьте пустым, если нужно анализировать первый лист">
+    </div>
+
+    <div class="field">
+      <label for="raw_prompt">Что нужно получить? Можно простыми словами</label>
+      <textarea id="raw_prompt" name="raw_prompt" rows="6" placeholder="Например: нужно сделать фильтр по филиалам и посчитать итоги продаж для выбранного филиала. Заголовки находятся на строке 4, данные начинаются со строки 5. В таблице должно быть видно, что, где и когда продалось.">{{ raw_prompt or '' }}</textarea>
+      <p class="meta">
+        Не нужно писать JSON. Если система неверно определила структуру, укажите это прямо в инструкции: например, «заголовки находятся на одной строке, на строке 4», «данные начинаются со строки 5», «не преобразовывать в длинный формат».
+      </p>
+    </div>
+
+    <button type="submit">Проанализировать файл и показать предпросмотр</button>
+  </form>
+
+  {% if result %}
+    {% set analysis = result.analysis %}
+    {% set preview = analysis.preview_context %}
+    <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;">
+
+    <h3><span class="step-badge">Шаг 2</span>Предпросмотр исходного файла</h3>
+    <p class="meta">
+      Система показывает, где она видит служебные строки, заголовки и начало данных. Это помогает понять, почему она предлагает именно такую инструкцию.
+    </p>
+    {% if preview and preview.legend %}
+      <div class="legend-row">
+        {% for item in preview.legend %}
+          <span class="legend-item {{ item.role }}">{{ item.label }}</span>
+        {% endfor %}
+      </div>
+    {% endif %}
+    <div class="preview-table-wrapper">
+      <table class="preview-table">
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Роль</th>
+            {% for col in (preview.columns if preview else []) %}<th>{{ col }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in (preview.rows if preview else []) %}
+            <tr class="preview-row {{ row.role }}">
+              <td class="row-number">{{ row.number }}</td>
+              <td class="row-role">{{ row.role_label }}</td>
+              {% for cell in row.cells %}
+                <td class="{% if cell.is_empty %}empty-cell{% endif %}">{{ cell.value }}</td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <h3><span class="step-badge">Шаг 3</span>Как система поняла файл и задачу</h3>
+    <div class="stats-grid">
+      <div><strong>Файл:</strong><br>{{ result.source_filename or analysis.file_name }}</div>
+      <div><strong>Лист:</strong><br>{{ analysis.selected_sheet }}</div>
+      <div><strong>Тип таблицы:</strong><br>{{ analysis.table_type }}</div>
+      <div><strong>Строки заголовков:</strong><br>{{ analysis.header_rows_human or analysis.header_rows }}</div>
+      <div><strong>Начало данных:</strong><br>{{ analysis.data_start_row_human or analysis.data_start_row }}</div>
+      <div><strong>Итерация:</strong><br>{{ result.revision_number or 1 }}</div>
+    </div>
+
+    <div class="understanding-grid">
+      {% for item in result.how_ai_understood %}
+        <div class="understanding-card">
+          <strong>{{ item.label }}</strong>
+          <p>{{ item.value }}</p>
+        </div>
+      {% endfor %}
+    </div>
+
+    {% if result.internal_rule_summary %}
+      <div class="hint-box">
+        <strong>Что система сделает автоматически:</strong>
+        <ul>
+          {% for item in result.internal_rule_summary %}
+            <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+        <p>Техническое JSON-правило обычному пользователю не показывается и не редактируется вручную.</p>
+      </div>
+    {% endif %}
+
+
+    {% if result.learned_instruction_hint %}
+      <div class="hint-box">
+        <strong>Автоматически учтена прошлая правка:</strong>
+        <p>{{ result.learned_instruction_hint }}</p>
+      </div>
+    {% endif %}
+
+    {% if result.learning_examples %}
+      <div class="hint-box">
+        <strong>Что система учла из прошлых исправлений:</strong>
+        <ul>
+          {% for item in result.learning_examples %}
+            <li>
+              Совпадение {{ item.similarity_score }}.
+              {% if item.user_corrected_instruction %}Похожая правка: {{ item.user_corrected_instruction }}{% endif %}
+              {% if item.changed_terms %}<br>Важные добавленные уточнения: {{ item.changed_terms|join(', ') }}{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    {% if similar_rules %}
+      <div class="hint-box">
+        <strong>Найдены похожие сохранённые шаблоны:</strong>
+        <ul>
+          {% for rule in similar_rules %}
+            <li>{{ rule.name }} — совпадение {{ rule.similarity_score }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <h3><span class="step-badge">Шаг 4</span>Инструкция: исходная и улучшенная</h3>
+    <div class="compare-grid">
+      <div class="compare-card">
+        <h4>Что написал пользователь</h4>
+        <div class="prompt-preview">{{ result.user_raw_prompt or 'Пользователь не ввёл подробную инструкцию.' }}</div>
+      </div>
+      <div class="compare-card improved">
+        <h4>Как система переформулировала задачу</h4>
+        <div class="prompt-preview">{{ result.ai_improved_instruction }}</div>
+      </div>
+    </div>
+
+    <div class="changes-list">
+      {% for change in result.instruction_changes %}
+        <div class="change-item">
+          <span>{{ change.type }}</span>
+          <p>{{ change.text }}</p>
+        </div>
+      {% endfor %}
+    </div>
+
+
+    {% if result.clarifying_questions %}
+      <div class="hint-box">
+        <strong>Что можно уточнить в инструкции:</strong>
+        <p>
+          Это не отдельные вопросы без ответа. Ответьте на них прямо в тексте инструкции ниже — система перечитает инструкцию,
+          заново проанализирует Excel и перестроит внутреннее правило.
+        </p>
+        <ul>
+          {% for question in result.clarifying_questions %}
+            <li>{{ question }}</li>
+          {% endfor %}
+        </ul>
+        <p>
+          Пример уточнения: «Заголовки находятся на строке 4. Данные начинаются со строки 5. Оставить колонки Филиал, Товар, Дата. Итоговые строки удалить».
+        </p>
+      </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('web.assistant_preview_result') }}" class="panel">
+      <h3><span class="step-badge">Шаг 5</span>Изменить инструкцию и обновить предпросмотр</h3>
+      <input type="hidden" name="job_id" value="{{ result.job_id }}">
+      <input type="hidden" name="raw_prompt" value="{{ result.user_raw_prompt }}">
+      <input type="hidden" name="previous_ai_instruction" value="{{ result.ai_improved_instruction }}">
+      <input type="hidden" name="source_filename" value="{{ result.source_filename or analysis.file_name }}">
+      <input type="hidden" name="revision_number" value="{{ result.revision_number or 1 }}">
+
+      <div class="field">
+        <label for="prompt">Инструкция, по которой система должна построить результат</label>
+        <textarea id="prompt" name="prompt" rows="8">{{ result.ai_improved_instruction }}</textarea>
+        <p class="meta">
+          Если предпросмотр не соответствует ожиданиям, не правьте таблицу руками. Измените только инструкцию.
+          Явные фразы вроде «заголовки находятся на строке 4» и «заголовки в одной строке» имеют приоритет над автоанализом.
+          Система заново проанализирует Excel, пересоберёт внутреннее правило и запомнит эту правку как обучение на ошибке.
+        </p>
+      </div>
+
+      <button type="submit">Обновить анализ и предпросмотр</button>
+    </form>
+
+    {% if preview_error %}
+      <div class="warning-box"><strong>Предпросмотр не сформирован:</strong> {{ preview_error }}</div>
+    {% endif %}
+
+    {% if conversion_diagnostics %}
+      <h3><span class="step-badge">Проверка</span>Ошибки и предупреждения конвертации</h3>
+      <div class="diagnostics-list">
+        {% for item in conversion_diagnostics %}
+          <div class="diagnostic-item {{ item.severity }}">
+            <strong>
+              {% if item.severity == 'error' %}Ошибка{% elif item.severity == 'warning' %}Предупреждение{% else %}Информация{% endif %}
+              — {{ item.stage }}
+            </strong>
+            <p>{{ item.message }}</p>
+            {% if item.hint %}<p class="meta">Что уточнить: {{ item.hint }}</p>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      {% if has_blocking_conversion_errors %}
+        <div class="warning-box">
+          Система не будет формировать готовый файл, пока есть ошибки конвертации.
+          Исправьте только текст инструкции на шаге 5 и снова обновите предпросмотр.
+        </div>
+      {% endif %}
+    {% endif %}
+
+    {% if target_preview %}
+      <h3><span class="step-badge">Шаг 6</span>Предпросмотр итоговой таблицы</h3>
+      <p class="meta">
+        Показаны первые {{ target_preview.shown_rows }} строк результата из {{ target_preview.total_rows }}.
+        Таблица доступна только для просмотра. Если нужно изменить результат — уточните инструкцию на шаге 5.
+      </p>
+      {% if target_preview.is_limited %}
+        <div class="warning-box">
+          Показаны не все строки, а только первые {{ target_preview.shown_rows }}. Полный результат будет сформирован при конвертации/скачивании.
+        </div>
+      {% endif %}
+
+      <div class="preview-table-wrapper">
+        <table class="preview-table">
+          <thead>
+            <tr>
+              {% for col in target_preview.columns %}
+                <th>{{ col }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in target_preview.rows %}
+              <tr>
+                {% for cell in row %}
+                  <td>{{ cell }}</td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <form method="post" action="{{ url_for('web.assistant_convert_checked') }}" class="panel">
+        <h3><span class="step-badge">Шаг 7</span>Сформировать готовый Excel после проверки</h3>
+        <input type="hidden" name="job_id" value="{{ result.job_id }}">
+        <input type="hidden" name="prompt" value="{{ result.ai_improved_instruction }}">
+        <input type="hidden" name="raw_prompt" value="{{ result.user_raw_prompt }}">
+        <input type="hidden" name="source_filename" value="{{ result.source_filename or analysis.file_name }}">
+        <input type="hidden" name="revision_number" value="{{ result.revision_number or 1 }}">
+        <textarea name="generated_rule" style="display:none;">{{ generated_rule_json }}</textarea>
+        {% if has_blocking_conversion_errors %}
+          <button type="submit" disabled>Сначала исправьте ошибки в инструкции</button>
+          <p class="meta">Готовый файл не формируется автоматически: сначала система должна успешно построить корректный предпросмотр.</p>
+        {% else %}
+          <button type="submit">Сформировать и скачать Excel</button>
+          <p class="meta">Файл будет создан только после успешного предпросмотра. Если на финальной конвертации появится ошибка, система вернёт вас к исправлению инструкции.</p>
+        {% endif %}
+      </form>
+
+      <form method="post" action="{{ url_for('web.save_assistant_rule') }}" class="panel">
+        <h3><span class="step-badge">Шаг 8</span>Сохранить как типовой шаблон</h3>
+        <input type="hidden" name="prompt" value="{{ result.ai_improved_instruction }}">
+        <input type="hidden" name="raw_prompt" value="{{ result.user_raw_prompt }}">
+        <input type="hidden" name="source_filename" value="{{ result.source_filename or analysis.file_name }}">
+        <textarea name="generated_rule" style="display:none;">{{ generated_rule_json }}</textarea>
+        <textarea name="fingerprint" style="display:none;">{{ fingerprint_json }}</textarea>
+
+        <div class="field">
+          <label for="name">Название шаблона</label>
+          <input id="name" name="name" type="text" placeholder="Например: Продажи по филиалам с фильтром и итогами" required>
+        </div>
+        <div class="field">
+          <label for="domain">Сфера / домен</label>
+          <input id="domain" name="domain" type="text" value="sales" placeholder="sales / finance / production / hr / universal">
+        </div>
+        <button type="submit">Сохранить шаблон</button>
+      </form>
+    {% endif %}
+
+    <div class="hint-box">
+      <strong>Как происходит обучение на ошибках:</strong>
+      <p>
+        Если пользователь меняет предложенную инструкцию, система фиксирует прежний вариант, новую правку,
+        признаки Excel-файла и обновлённое внутреннее правило. При следующих похожих файлах эти правки добавляются
+        в контекст AI-помощника, поэтому инструкция должна становиться точнее и требовать меньше изменений.
+      </p>
+      {% if feedback_stats %}
+        <p>Всего сохранено правок инструкции: {{ feedback_stats.instruction_revisions }}. Принятых шаблонов: {{ feedback_stats.accepted_templates }}.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <style>
+    .diagnostics-list { display: grid; gap: 10px; margin: 12px 0 18px; }
+    .diagnostic-item { border-radius: 12px; padding: 12px 14px; border: 1px solid #d1d5db; background: #f9fafb; }
+    .diagnostic-item.error { border-color: #fecaca; background: #fef2f2; }
+    .diagnostic-item.warning { border-color: #fde68a; background: #fffbeb; }
+    .diagnostic-item.info { border-color: #bfdbfe; background: #eff6ff; }
+    .diagnostic-item p { margin: 6px 0 0; }
+    button[disabled] { opacity: .55; cursor: not-allowed; }
+  </style>
+
+  <script>
+    function updateFileName(input, spanId) {
+      const span = document.getElementById(spanId);
+      const files = input.files;
+      span.textContent = files && files[0] ? files[0].name : 'Файл не выбран';
+    }
+  </script>
+{% endblock %}

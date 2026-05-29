@@ -1,0 +1,54 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <h2>Файл обработан</h2>
+  <p class="meta">Исходный файл: <strong>{{ source_filename }}</strong></p>
+  {% if rule_name %}<p class="meta">Использовано правило: <strong>{{ rule_name }}</strong></p>{% endif %}
+  <div class="stats-grid" style="margin:16px 0;">
+    <div><strong>Строк:</strong><br>{{ rows }}</div>
+    <div><strong>Колонок:</strong><br>{{ columns or '—' }}</div>
+    <div><strong>Формат:</strong><br>{{ format }}</div>
+  </div>
+
+  {% if instruction_details %}
+    <h3>Как AI-помощник понял и изменил инструкцию</h3>
+    <div class="understanding-grid">
+      {% for item in instruction_details.how_ai_understood %}
+        <div class="understanding-card">
+          <strong>{{ item.label }}</strong>
+          <p>{{ item.value }}</p>
+        </div>
+      {% endfor %}
+    </div>
+    <div class="compare-grid">
+      <div class="compare-card">
+        <h4>Исходная инструкция</h4>
+        <div class="prompt-preview">{{ instruction_details.raw_prompt }}</div>
+      </div>
+      <div class="compare-card improved">
+        <h4>Улучшенная инструкция</h4>
+        <div class="prompt-preview">{{ instruction_details.improved_instruction }}</div>
+      </div>
+    </div>
+    <div class="changes-list">
+      {% for change in instruction_details.instruction_changes %}
+        <div class="change-item">
+          <span>{{ change.type }}</span>
+          <p>{{ change.text }}</p>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="hint-box">
+    <strong>Если в инструкции был фильтр по филиалам и итоги:</strong>
+    <p>
+      В итоговом Excel включён автофильтр. Выберите нужный филиал в заголовке таблицы — строка итогов с формулами SUBTOTAL пересчитается по видимым строкам. Если включён сводный режим, появится отдельный лист «Итоги».
+    </p>
+  </div>
+
+  <p>
+    <a class="action-link" href="{{ url_for('web.download', filename=output_filename) }}">Скачать результат</a>
+    <a class="action-link secondary" href="{{ url_for('web.index') }}">Обработать другой файл</a>
+  </p>
+{% endblock %}

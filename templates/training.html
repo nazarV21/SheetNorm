@@ -1,0 +1,229 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <h2>Обучение модели</h2>
+  <p class="meta">
+    Здесь можно добавлять обучающие пары «исходная таблица → итоговая таблица». Примеры сохраняются в
+    <code>training_examples/</code> и используются ИИ-модулем как few-shot контекст при конвертации.
+  </p>
+
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:18px 0 22px;">
+    <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb;">
+      <div style="font-size:22px;font-weight:700;">{{ training_stats.total }}</div>
+      <div class="meta" style="margin-top:2px;">всего примеров</div>
+    </div>
+    <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb;">
+      <div style="font-size:22px;font-weight:700;">{{ training_stats.available }}</div>
+      <div class="meta" style="margin-top:2px;">доступно</div>
+    </div>
+    <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb;">
+      <div style="font-size:22px;font-weight:700;">{{ training_stats.with_rule }}</div>
+      <div class="meta" style="margin-top:2px;">с привязкой к правилу</div>
+    </div>
+    <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb;">
+      <div style="font-size:22px;font-weight:700;">{{ training_stats.broken }}</div>
+      <div class="meta" style="margin-top:2px;">битых ссылок</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr;gap:22px;">
+    <section style="padding:16px;border:1px solid #bfdbfe;border-radius:12px;background:#eff6ff;">
+      <h3 style="margin:0 0 8px;font-size:17px;">Массовое обучение через ZIP</h3>
+      <p class="meta">
+        Самый удобный вариант: загрузите архив с парами файлов. Поддерживаются имена
+        <code>*_source.xlsx</code> + <code>*_target.xlsx</code>, а также папки <code>source/</code> и <code>target/</code>.
+        Дубли по содержимому автоматически пропускаются.
+      </p>
+
+      <form method="post" enctype="multipart/form-data" style="max-width:760px;margin-top:14px;">
+        <input type="hidden" name="mode" value="batch_zip">
+
+        <div class="field">
+          <label for="zip_rule_id">Правило для всех примеров (опционально)</label>
+          <select id="zip_rule_id" name="rule_id">
+            <option value="">Без привязки к правилу</option>
+            {% for rule in rules %}
+              <option value="{{ rule.id }}">{{ rule.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="batch_zip">ZIP-архив с обучающими парами</label>
+          <div class="file-row">
+            <label class="file-label">
+              <span>Выбрать ZIP</span>
+              <input id="batch_zip" type="file" name="batch_zip" accept=".zip" required onchange="updateFileName(this, 'zip-name')">
+            </label>
+            <span class="file-name" id="zip-name">Файл не выбран</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="zip_prompt">Общий промпт для пакета (опционально)</label>
+          <textarea id="zip_prompt" name="prompt" rows="3" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #d1d5db;font-size:14px;" placeholder="Например: преобразовать исходную таблицу в нормализованную плоскую структуру"></textarea>
+        </div>
+
+        <button type="submit">Импортировать пакет</button>
+      </form>
+    </section>
+
+    <section style="padding:16px;border:1px solid #e5e7eb;border-radius:12px;background:#ffffff;">
+      <h3 style="margin:0 0 8px;font-size:17px;">Массовое обучение несколькими файлами</h3>
+      <p class="meta">
+        Выберите несколько исходных файлов и несколько итоговых файлов. Система сопоставит пары по имени:
+        <code>01_report_source.xlsx</code> ↔ <code>01_report_target.xlsx</code> или одинаковые имена в двух наборах.
+      </p>
+
+      <form method="post" enctype="multipart/form-data" style="max-width:760px;margin-top:14px;">
+        <input type="hidden" name="mode" value="batch_files">
+
+        <div class="field">
+          <label for="files_rule_id">Правило для всех примеров (опционально)</label>
+          <select id="files_rule_id" name="rule_id">
+            <option value="">Без привязки к правилу</option>
+            {% for rule in rules %}
+              <option value="{{ rule.id }}">{{ rule.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="source_files">Исходные таблицы</label>
+          <div class="file-row">
+            <label class="file-label">
+              <span>Выбрать исходные</span>
+              <input id="source_files" type="file" name="source_files" accept=".xlsx,.xls" multiple required onchange="updateFilesCount(this, 'source-files-name')">
+            </label>
+            <span class="file-name" id="source-files-name">Файлы не выбраны</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="target_files">Итоговые таблицы</label>
+          <div class="file-row">
+            <label class="file-label">
+              <span>Выбрать итоговые</span>
+              <input id="target_files" type="file" name="target_files" accept=".xlsx,.xls" multiple required onchange="updateFilesCount(this, 'target-files-name')">
+            </label>
+            <span class="file-name" id="target-files-name">Файлы не выбраны</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="files_prompt">Общий промпт для пакета (опционально)</label>
+          <textarea id="files_prompt" name="prompt" rows="3" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #d1d5db;font-size:14px;"></textarea>
+        </div>
+
+        <button type="submit">Импортировать выбранные пары</button>
+      </form>
+    </section>
+
+    <section style="padding:16px;border:1px solid #e5e7eb;border-radius:12px;background:#ffffff;">
+      <h3 style="margin:0 0 8px;font-size:17px;">Одиночный обучающий пример</h3>
+      <p class="meta">Оставлено для ручного добавления одной пары, если нужно быстро проверить отдельный случай.</p>
+
+      <form method="post" enctype="multipart/form-data" style="max-width:760px;margin-top:14px;">
+        <input type="hidden" name="mode" value="single">
+
+        <div class="field">
+          <label for="rule_id">Правило (опционально)</label>
+          <select id="rule_id" name="rule_id">
+            <option value="">Без привязки к правилу</option>
+            {% for rule in rules %}
+              <option value="{{ rule.id }}">{{ rule.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="source_file">Исходная таблица (Excel)</label>
+          <div class="file-row">
+            <label class="file-label">
+              <span>Выбрать файл</span>
+              <input id="source_file" type="file" name="source_file" accept=".xlsx,.xls" onchange="updateFileName(this, 'source-name')">
+            </label>
+            <span class="file-name" id="source-name">Файл не выбран</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="target_file">Итоговая таблица (Excel)</label>
+          <div class="file-row">
+            <label class="file-label">
+              <span>Выбрать файл</span>
+              <input id="target_file" type="file" name="target_file" accept=".xlsx,.xls" onchange="updateFileName(this, 'target-name')">
+            </label>
+            <span class="file-name" id="target-name">Файл не выбран</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="prompt">Промпт (опционально)</label>
+          <textarea id="prompt" name="prompt" rows="4" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #d1d5db;font-size:14px;" placeholder="Опишите, какие преобразования нужно выполнить"></textarea>
+        </div>
+
+        <button type="submit">Сохранить обучающий пример</button>
+      </form>
+    </section>
+  </div>
+
+  <section style="margin-top:28px;">
+    <h3 style="font-size:17px;margin-bottom:10px;">Последние обучающие примеры</h3>
+    {% if not examples %}
+      <p class="meta">Пока нет обучающих примеров.</p>
+    {% else %}
+      <div class="history-table-wrapper" style="max-height:460px;">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Дата</th>
+              <th>Исходный файл</th>
+              <th>Итоговый файл</th>
+              <th>Правило</th>
+              <th>Статус</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ex in examples %}
+              <tr>
+                <td>{{ ex.created_at }}</td>
+                <td title="{{ ex.source_filename }}">{{ ex.source_filename }}</td>
+                <td title="{{ ex.target_filename }}">{{ ex.target_filename }}</td>
+                <td>{{ ex.rule_id or 'Глобальный' }}</td>
+                <td>
+                  {% if ex.source_exists and ex.target_exists %}
+                    доступен
+                  {% else %}
+                    файл не найден
+                  {% endif %}
+                </td>
+                <td>
+                  <form method="post" action="{{ url_for('web.delete_training_example', example_id=ex.id) }}" style="display:inline;">
+                    <button type="submit" onclick="return confirm('Удалить обучающий пример?');" style="padding:4px 9px;background:#dc2626;border-color:#dc2626;font-size:12px;">Удалить</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+
+  <script>
+    function updateFileName(input, spanId) {
+      const span = document.getElementById(spanId);
+      if (!span) return;
+      const files = input.files;
+      span.textContent = files && files[0] ? files[0].name : 'Файл не выбран';
+    }
+    function updateFilesCount(input, spanId) {
+      const span = document.getElementById(spanId);
+      if (!span) return;
+      const files = input.files || [];
+      span.textContent = files.length ? `${files.length} файл(ов) выбрано` : 'Файлы не выбраны';
+    }
+  </script>
+{% endblock %}

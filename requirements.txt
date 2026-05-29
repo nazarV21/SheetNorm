@@ -1,0 +1,9 @@
+Flask
+Flask-Cors
+python-dotenv
+pandas
+openpyxl
+pyarrow
+pydantic
+requests
+python-docx

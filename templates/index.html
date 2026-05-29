@@ -1,0 +1,93 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <h2>Конвертация Excel</h2>
+  <p class="meta">
+    Загрузите Excel-файл и выберите способ обработки: готовый шаблон, новая инструкция или простая конвертация без правил.
+  </p>
+
+  <form method="post" enctype="multipart/form-data" id="convert-form">
+    <div class="field">
+      <label for="file">Файл Excel</label>
+      <div class="file-row">
+        <label class="file-label">
+          <span>Выбрать файл</span>
+          <input id="file" type="file" name="file" accept=".xlsx,.xls" required onchange="updateFileName(this)">
+        </label>
+        <span class="file-name" id="file-name">Файл не выбран</span>
+      </div>
+    </div>
+
+    <div class="mode-grid">
+      <label class="mode-card">
+        <input type="radio" name="mode" value="rule" checked onchange="toggleMode()">
+        <strong>Готовый шаблон</strong>
+        <span>Для типовых таблиц: система применит сохранённую инструкцию и JSON-правило.</span>
+      </label>
+      <label class="mode-card">
+        <input type="radio" name="mode" value="custom" onchange="toggleMode()">
+        <strong>Новая инструкция</strong>
+        <span>Для нового формата: пользователь описывает задачу, AI-помощник улучшает промпт.</span>
+      </label>
+    </div>
+
+    <section id="rule-panel" class="panel">
+      <div class="field">
+        <label for="rule_id">Правило / шаблон обработки</label>
+        <select id="rule_id" name="rule_id">
+          <option value="">Без правил (сохранить как плоское чтение Excel)</option>
+          {% for rule in rules %}
+            <option value="{{ rule.id }}">{{ rule.name }}{% if rule.domain %} — {{ rule.domain }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <p class="meta">
+        Если похожего шаблона ещё нет, откройте раздел <a href="{{ url_for('web.instruction_assistant') }}">AI-помощник</a> или используйте режим «Новая инструкция» ниже.
+      </p>
+    </section>
+
+    <section id="custom-panel" class="panel" style="display:none;">
+      <div class="field">
+        <label for="custom_instruction">Инструкция простыми словами</label>
+        <textarea id="custom_instruction" name="custom_instruction" rows="6" placeholder="Например: нужно сделать фильтр по филиалам и посчитать итоги продаж для выбранного филиала. В таблице должно быть видно, что, где и когда продалось."></textarea>
+        <p class="meta">
+          Не обязательно писать идеально. Система проанализирует файл, покажет как поняла задачу в результате обработки и улучшит инструкцию перед применением. Для полноценного предпросмотра лучше использовать раздел AI-помощник.
+        </p>
+      </div>
+
+      <div class="field inline-checks">
+        <label><input type="checkbox" name="improve_instruction" value="1" checked> Улучшить инструкцию с помощью AI-помощника</label>
+        <label><input type="checkbox" name="save_as_rule" value="1" onchange="toggleSaveRule(this)"> Сохранить как типовой шаблон</label>
+      </div>
+
+      <div id="save-rule-panel" style="display:none;">
+        <div class="field">
+          <label for="new_rule_name">Название нового шаблона</label>
+          <input id="new_rule_name" name="new_rule_name" type="text" placeholder="Например: Кросс-таблица по филиалам и месяцам">
+        </div>
+        <div class="field">
+          <label for="domain">Сфера / домен</label>
+          <input id="domain" name="domain" type="text" value="universal" placeholder="finance / production / hr / universal">
+        </div>
+      </div>
+    </section>
+
+    <button type="submit">Загрузить и конвертировать</button>
+  </form>
+
+  <script>
+    function updateFileName(input) {
+      const span = document.getElementById('file-name');
+      const files = input.files;
+      span.textContent = files && files[0] ? files[0].name : 'Файл не выбран';
+    }
+    function toggleMode() {
+      const mode = document.querySelector('input[name="mode"]:checked').value;
+      document.getElementById('rule-panel').style.display = mode === 'rule' ? '' : 'none';
+      document.getElementById('custom-panel').style.display = mode === 'custom' ? '' : 'none';
+    }
+    function toggleSaveRule(input) {
+      document.getElementById('save-rule-panel').style.display = input.checked ? '' : 'none';
+    }
+  </script>
+{% endblock %}

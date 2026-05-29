@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Models
+models/*.gguf
+models/*.bin
+
+# Logs
+logs/*.log
+logs/
+
+# Runtime data files
+output/
+input/meta/
+tables/input/*.xlsx
+tables/input/*.xls
+tables/output/*.xlsx
+history.json
+
+# System
+Thumbs.db
+.DS_Store

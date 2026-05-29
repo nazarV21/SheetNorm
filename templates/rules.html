@@ -1,0 +1,57 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <h2>Правила и типовые шаблоны</h2>
+  <p class="meta">
+    Шаблон содержит человеческую инструкцию, улучшенную AI-помощником, и при наличии — JSON-правило для алгоритмического преобразования.
+  </p>
+
+  <p class="meta" style="margin-bottom: 16px;">
+    <a class="action-link" href="{{ url_for('web.instruction_assistant') }}">Создать через AI-помощник</a>
+    <a class="action-link secondary" href="{{ url_for('web.new_rule') }}">Создать вручную</a>
+  </p>
+
+  {% if not rules %}
+    <p class="meta">Правила пока не созданы.</p>
+  {% else %}
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      {% for rule in rules %}
+        <div class="rule-card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+            <div>
+              <h3 style="margin:0 0 6px;font-size:16px;font-weight:600;">{{ rule.name }}</h3>
+              <div class="badge-row">
+                <span class="badge">{{ rule.domain or 'universal' }}</span>
+                {% if rule.generated_rule %}<span class="badge ok">JSON-правило</span>{% endif %}
+                {% if rule.use_raw_data %}<span class="badge">сырые данные</span>{% endif %}
+                {% if rule.fingerprint and rule.fingerprint.table_type %}<span class="badge">{{ rule.fingerprint.table_type }}</span>{% endif %}
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <a class="small-btn" href="{{ url_for('web.edit_rule', rule_id=rule.id) }}">Редактировать</a>
+              <form method="post" action="{{ url_for('web.delete_rule', rule_id=rule.id) }}" style="display:inline;">
+                <button type="submit" onclick="return confirm('Удалить правило {{ rule.name }}?');" class="danger-btn">Удалить</button>
+              </form>
+            </div>
+          </div>
+
+          {% if rule.description %}
+            <p class="meta">{{ rule.description }}</p>
+          {% endif %}
+
+          <div class="prompt-box">
+            <strong>Инструкция:</strong>
+            <p>{{ rule.ai_improved_instruction or rule.prompt }}</p>
+          </div>
+
+          {% if rule.raw_user_prompt and rule.raw_user_prompt != (rule.ai_improved_instruction or rule.prompt) %}
+            <details>
+              <summary>Исходная формулировка пользователя</summary>
+              <p class="meta">{{ rule.raw_user_prompt }}</p>
+            </details>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endblock %}
