@@ -66,6 +66,20 @@ ENABLE_ASYNC=false
 pip install -r requirements-ai.txt
 ```
 
+Быстрая установка рекомендуемой модели на Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/download_model.ps1
+```
+
+Скрипт скачивает модель Qwen2.5 3B Instruct GGUF в путь:
+
+```text
+models/qwen2.5-3b-instruct-q4_k_m.gguf
+```
+
+После скачивания путь уже совпадает со значением `AI_MODEL_PATH` из `.env.example`.
+
 `requirements-ai.txt` использует готовые CPU-колеса `llama-cpp-python==0.3.16`, чтобы на Windows не требовалась локальная сборка через Visual C++. Версия закреплена намеренно: на некоторых CPU более новая сборка может падать с `Windows Error 0xc000001d`.
 
 ## Модель И Обучение
@@ -91,6 +105,12 @@ pip install -r requirements-ai.txt
 
 ```text
 models/qwen2.5-3b-instruct-q4_k_m.gguf
+```
+
+Или скачайте ее автоматически:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/download_model.ps1
 ```
 
 и проверьте `.env`:
