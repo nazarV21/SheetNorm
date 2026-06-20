@@ -1,13 +1,13 @@
 {% extends "layout.html" %}
 
 {% block content %}
-  <h2>Обучение модели</h2>
+  <div class="page-header"><div><div class="eyebrow">Память примеров</div><h1>Обучающие примеры</h1></div></div>
   <p class="meta">
     Здесь можно добавлять обучающие пары «исходная таблица → итоговая таблица». Примеры сохраняются в
     <code>training_examples/</code> и используются ИИ-модулем как few-shot контекст при конвертации.
   </p>
 
-  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:18px 0 22px;">
+  <div class="stats-grid" style="margin:18px 0 22px;">
     <div style="padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb;">
       <div style="font-size:22px;font-weight:700;">{{ training_stats.total }}</div>
       <div class="meta" style="margin-top:2px;">всего примеров</div>

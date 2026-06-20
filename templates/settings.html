@@ -1,15 +1,15 @@
 {% extends "layout.html" %}
 
 {% block content %}
-  <h2>Настройки</h2>
+  <div class="page-header"><div><div class="eyebrow">Конфигурация</div><h1>Настройки</h1></div></div>
 
   <div style="margin-bottom: 32px;">
-    <h3 style="font-size: 18px; margin-bottom: 12px;">Обучение модели</h3>
+    <h3 style="font-size: 18px; margin-bottom: 12px;">Обучающие примеры</h3>
     <p class="meta">
       Система поддерживает одиночное и пакетное добавление обучающих примеров. Для массовой загрузки используйте ZIP-архив
       с парами <code>*_source.xlsx</code> и <code>*_target.xlsx</code> или наборы файлов source/target.
     </p>
-    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0;">
+    <div class="stats-grid" style="margin:14px 0;">
       <div style="padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
         <strong>{{ training_stats.total }}</strong><br><span class="meta">всего</span>
       </div>

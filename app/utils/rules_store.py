@@ -9,6 +9,18 @@ from datetime import datetime
 from flask import current_app
 
 
+VALID_TABLE_TYPES = {"flat", "multi_header", "cross_table"}
+VALID_OPERATIONS = {
+    "drop_rows",
+    "rename_columns",
+    "select_columns",
+    "melt",
+    "fill_merged",
+    "drop_empty",
+    "filter_rows",
+}
+
+
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -45,7 +57,48 @@ class RulesStore:
         for rule in rules:
             rule.setdefault("type", "prompt_template")
             rule.setdefault("prompt", rule.get("ai_improved_instruction") or rule.get("description") or "")
+            rule.setdefault("description", "")
+            rule.setdefault("domain", "universal")
+            rule.setdefault("category", rule.get("domain") or "universal")
+            rule.setdefault("table_type", (rule.get("generated_rule") or {}).get("table_type") or (rule.get("fingerprint") or {}).get("table_type") or "flat")
+            rule.setdefault("version", 1)
+            rule.setdefault("tags", [])
         return rules
+
+    @staticmethod
+    def validate_rule_payload(
+        *,
+        name: str,
+        prompt: str,
+        generated_rule: dict[str, Any] | None,
+        table_type: str | None = None,
+    ) -> list[str]:
+        warnings: list[str] = []
+        generated_rule = generated_rule or {}
+        if not name.strip():
+            warnings.append("Не указано название шаблона.")
+        if not prompt.strip():
+            warnings.append("Не указана инструкция обработки.")
+
+        resolved_type = table_type or generated_rule.get("table_type")
+        if resolved_type and resolved_type not in VALID_TABLE_TYPES:
+            warnings.append(f"Неизвестный тип таблицы: {resolved_type}.")
+
+        header_rows = generated_rule.get("header_rows") or []
+        if any(not isinstance(value, int) or value < 0 for value in header_rows):
+            warnings.append("Строки заголовков должны быть неотрицательными целыми числами.")
+        data_start = generated_rule.get("data_start_row")
+        if data_start is not None and (not isinstance(data_start, int) or data_start < 0):
+            warnings.append("Строка начала данных должна быть неотрицательным целым числом.")
+        if header_rows and isinstance(data_start, int) and data_start <= max(header_rows):
+            warnings.append("Строка начала данных должна находиться после строк заголовков.")
+
+        operations = generated_rule.get("operations") or []
+        for operation in operations:
+            name_value = operation.get("type") if isinstance(operation, dict) else operation
+            if name_value not in VALID_OPERATIONS:
+                warnings.append(f"Неизвестная операция в JSON-правиле: {name_value}.")
+        return warnings
 
     def get_rule(self, rule_id: str) -> dict[str, Any] | None:
         for rule in self.list_rules():
@@ -65,15 +118,27 @@ class RulesStore:
         domain: str | None = None,
         use_raw_data: bool | None = None,
         sheet_name: str | None = None,
+        category: str | None = None,
+        table_type: str | None = None,
+        tags: list[str] | None = None,
     ) -> dict[str, Any]:
         """Добавить новое правило/шаблон с промптом и метаданными."""
         rules = self._load_all()
+        resolved_table_type = table_type or (generated_rule or {}).get("table_type") or (fingerprint or {}).get("table_type") or "flat"
+        warnings = self.validate_rule_payload(
+            name=name,
+            prompt=prompt,
+            generated_rule=generated_rule,
+            table_type=resolved_table_type,
+        )
         rule = {
             "id": str(uuid.uuid4()),
             "type": "prompt_template",
             "name": name,
             "description": description or "",
             "domain": domain or "universal",
+            "category": category or domain or "universal",
+            "table_type": resolved_table_type,
             "raw_user_prompt": raw_prompt or prompt,
             "ai_improved_instruction": prompt,
             "prompt": prompt,
@@ -83,6 +148,9 @@ class RulesStore:
             "sheet_name": sheet_name or (generated_rule or {}).get("sheet_name"),
             "created_at": _now(),
             "updated_at": _now(),
+            "version": 1,
+            "tags": tags or [],
+            "validation_warnings": warnings,
         }
         rules.append(rule)
         self._save_all(rules)
@@ -134,6 +202,13 @@ class RulesStore:
                     else:
                         rule.pop(key, None)
                 rule["updated_at"] = _now()
+                rule["version"] = int(rule.get("version") or 1) + 1
+                rule["validation_warnings"] = self.validate_rule_payload(
+                    name=str(rule.get("name") or ""),
+                    prompt=str(rule.get("prompt") or ""),
+                    generated_rule=rule.get("generated_rule") or {},
+                    table_type=rule.get("table_type"),
+                )
                 self._save_all(rules)
                 return rule
         return None
@@ -146,6 +221,25 @@ class RulesStore:
             return False
         self._save_all(filtered)
         return True
+
+    def duplicate_rule(self, rule_id: str) -> dict[str, Any] | None:
+        source = self.get_rule(rule_id)
+        if not source:
+            return None
+        return self.add_rule(
+            name=f"{source.get('name', 'Шаблон')} - копия",
+            prompt=source.get("prompt") or source.get("ai_improved_instruction") or "",
+            raw_prompt=source.get("raw_user_prompt"),
+            generated_rule=source.get("generated_rule") or {},
+            fingerprint=source.get("fingerprint") or {},
+            description=source.get("description"),
+            domain=source.get("domain"),
+            use_raw_data=source.get("use_raw_data"),
+            sheet_name=source.get("sheet_name"),
+            category=source.get("category"),
+            table_type=source.get("table_type"),
+            tags=list(source.get("tags") or []),
+        )
 
     def find_similar_rules(self, fingerprint: dict[str, Any], limit: int = 5) -> list[dict[str, Any]]:
         """Найти похожие шаблоны по fingerprint структуры таблицы."""

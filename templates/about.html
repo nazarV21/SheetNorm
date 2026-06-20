@@ -1,0 +1,11 @@
+{% extends "layout.html" %}
+{% block title %}О SheetNorm{% endblock %}
+{% block content %}
+  <div class="page-header"><div><div class="eyebrow">О продукте</div><h1>SheetNorm для корпоративной подготовки Excel-данных</h1><p class="lead">Локальная система с AI-помощником и проверяемыми шаблонами преобразования.</p></div></div>
+  <section class="section-band"><h2>Проблема и решение</h2><div class="grid-2" style="margin-top:14px;"><div class="feature"><strong>Проблема</strong><span class="meta">Корпоративные Excel-отчёты часто рассчитаны на чтение человеком, а не на загрузку в информационные системы.</span></div><div class="feature"><strong>Решение</strong><span class="meta">SheetNorm анализирует структуру, формирует проект правила и показывает предпросмотр до экспорта.</span></div></div></section>
+  <section class="section-band"><h2>Преимущества</h2><div class="grid-3" style="margin-top:14px;"><div class="panel"><strong>Локальная обработка</strong><p class="meta">Excel-файлы остаются в контуре приложения.</p></div><div class="panel"><strong>Контроль человеком</strong><p class="meta">AI предлагает, но результат утверждается через предпросмотр.</p></div><div class="panel"><strong>Повторяемость</strong><p class="meta">Уточнённая логика сохраняется в шаблоне.</p></div></div></section>
+  <section class="section-band"><h2>Типовые сценарии</h2><p>Управленческие отчёты, продажи по филиалам, складские остатки, финансовые выгрузки, производственные и нефтегазовые формы, табели и реестры.</p></section>
+  <section class="section-band"><h2>Варианты внедрения</h2><p>Локальный запуск на рабочей станции, внутренний сервер подразделения или контейнерное развёртывание в корпоративной инфраструктуре.</p></section>
+  <section class="section-band"><h2>Ограничения текущей версии</h2><p>Качество автоматического правила зависит от структуры файла и ясности инструкции. Сложные нестабильные формы требуют проверки и, иногда, уточнения шаблона. Локальная LLM опциональна.</p></section>
+  <section class="panel"><h2>Что входит в пилот</h2><p>Развёртывание, настройка набора типовых шаблонов, проверка на примерах заказчика, демонстрация контроля результата и рекомендации по промышленной эксплуатации.</p><a class="action-link" href="{{ url_for('web.instruction_assistant') }}">Запустить демонстрационный сценарий</a></section>
+{% endblock %}

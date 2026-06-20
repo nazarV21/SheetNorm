@@ -1,54 +1,43 @@
 {% extends "layout.html" %}
-
+{% block title %}Результат готов — SheetNorm{% endblock %}
 {% block content %}
-  <h2>Файл обработан</h2>
-  <p class="meta">Исходный файл: <strong>{{ source_filename }}</strong></p>
-  {% if rule_name %}<p class="meta">Использовано правило: <strong>{{ rule_name }}</strong></p>{% endif %}
-  <div class="stats-grid" style="margin:16px 0;">
-    <div><strong>Строк:</strong><br>{{ rows }}</div>
-    <div><strong>Колонок:</strong><br>{{ columns or '—' }}</div>
-    <div><strong>Формат:</strong><br>{{ format }}</div>
-  </div>
+  <div class="page-header"><div><div class="eyebrow">Обработка завершена</div><h1>Результат готов к скачиванию</h1><p class="lead">Файл успешно обработан. В Excel добавлены лист результата и технический отчёт <code>processing_summary</code>.</p></div></div>
+  <div class="msg success">Файл успешно обработан. Результат готов к скачиванию.</div>
 
-  {% if instruction_details %}
-    <h3>Как AI-помощник понял и изменил инструкцию</h3>
-    <div class="understanding-grid">
-      {% for item in instruction_details.how_ai_understood %}
-        <div class="understanding-card">
-          <strong>{{ item.label }}</strong>
-          <p>{{ item.value }}</p>
-        </div>
-      {% endfor %}
+  <section class="panel">
+    <h2>Краткий отчёт</h2>
+    <div class="stats-grid" style="margin-top:14px;">
+      <div><strong>Входной файл</strong><br><span class="meta">{{ source_filename }}</span></div>
+      <div><strong>Шаблон</strong><br><span class="meta">{{ rule_name or 'Без шаблона' }}</span></div>
+      <div><strong>Строк</strong><br>{{ rows }}</div>
+      <div><strong>Колонок</strong><br>{{ columns or '—' }}</div>
     </div>
-    <div class="compare-grid">
-      <div class="compare-card">
-        <h4>Исходная инструкция</h4>
-        <div class="prompt-preview">{{ instruction_details.raw_prompt }}</div>
+    <div class="button-row"><a class="action-link" href="{{ url_for('web.download', filename=output_filename) }}">Скачать Excel</a><a class="action-link secondary" href="{{ url_for('web.index') }}">Обработать другой файл</a></div>
+  </section>
+
+  {% if quality_report %}
+    <section class="section-band">
+      <h2>Контроль результата</h2>
+      <p class="meta">Практический отчёт сравнивает размер и заполненность исходной и итоговой таблицы. Это не заменяет бизнес-проверку данных.</p>
+      <div class="quality-grid" style="margin-top:14px;">
+        <div class="metric"><strong>Строки</strong><br>{{ quality_report.rows_input }} → {{ quality_report.rows_output }}</div>
+        <div class="metric"><strong>Колонки</strong><br>{{ quality_report.columns_input }} → {{ quality_report.columns_output }}</div>
+        <div class="metric"><strong>Пустые ячейки</strong><br>{{ quality_report.empty_cells_before }} → {{ quality_report.empty_cells_after }}</div>
+        <div class="metric"><strong>Статус</strong><br><span class="badge {% if quality_report.quality_status == 'success' %}ok{% else %}warn{% endif %}">{{ quality_report.quality_status }}</span></div>
       </div>
-      <div class="compare-card improved">
-        <h4>Улучшенная инструкция</h4>
-        <div class="prompt-preview">{{ instruction_details.improved_instruction }}</div>
+      <div class="grid-2" style="margin-top:14px;">
+        <div class="panel"><strong>Определённый тип</strong><p class="meta">{{ quality_report.detected_table_type }}</p><strong>Уверенность</strong><p class="meta">{{ (quality_report.confidence_score * 100)|round|int }}%</p></div>
+        <div class="panel"><strong>Применённые операции</strong><ul>{% for operation in quality_report.applied_operations %}<li>{{ operation }}</li>{% endfor %}</ul></div>
       </div>
-    </div>
-    <div class="changes-list">
-      {% for change in instruction_details.instruction_changes %}
-        <div class="change-item">
-          <span>{{ change.type }}</span>
-          <p>{{ change.text }}</p>
-        </div>
-      {% endfor %}
-    </div>
+      {% if quality_report.warnings %}<div class="warning-box"><strong>Предупреждения:</strong><ul>{% for warning in quality_report.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>{% endif %}
+    </section>
   {% endif %}
 
-  <div class="hint-box">
-    <strong>Если в инструкции был фильтр по филиалам и итоги:</strong>
-    <p>
-      В итоговом Excel включён автофильтр. Выберите нужный филиал в заголовке таблицы — строка итогов с формулами SUBTOTAL пересчитается по видимым строкам. Если включён сводный режим, появится отдельный лист «Итоги».
-    </p>
-  </div>
-
-  <p>
-    <a class="action-link" href="{{ url_for('web.download', filename=output_filename) }}">Скачать результат</a>
-    <a class="action-link secondary" href="{{ url_for('web.index') }}">Обработать другой файл</a>
-  </p>
+  {% if instruction_details %}
+    <section class="section-band">
+      <h2>Как система поняла инструкцию</h2>
+      <div class="understanding-grid">{% for item in instruction_details.how_ai_understood %}<div class="understanding-card"><strong>{{ item.label }}</strong><p>{{ item.value }}</p></div>{% endfor %}</div>
+      <div class="compare-grid"><div class="compare-card"><h4>Исходная инструкция</h4><div class="prompt-preview">{{ instruction_details.raw_prompt }}</div></div><div class="compare-card improved"><h4>Уточнённая инструкция</h4><div class="prompt-preview">{{ instruction_details.improved_instruction }}</div></div></div>
+    </section>
+  {% endif %}
 {% endblock %}

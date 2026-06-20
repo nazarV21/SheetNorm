@@ -25,8 +25,8 @@ class FileManager:
             data = json.load(meta_path.open("r", encoding="utf-8"))
             filename = data.get("filename")
             if filename:
-                path = self.input_dir / filename
-                if path.exists():
+                path = (self.input_dir / Path(str(filename)).name).resolve()
+                if path.parent == self.input_dir.resolve() and path.exists():
                     return path
 
         # fallback для старых файлов
@@ -60,7 +60,9 @@ class FileManager:
         except FileNotFoundError:
             filename = f"{job_id}_converted{ext}"
         path = self.output_dir / filename
-        if path.exists():
-            path.unlink()
+        counter = 2
+        while path.exists():
+            path = self.output_dir / f"{Path(filename).stem}_{counter}{ext}"
+            counter += 1
         return path
 

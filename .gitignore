@@ -1,5 +1,7 @@
 # Python
 __pycache__/
+.pytest_cache/
+.playwright-mcp/
 *.py[cod]
 *.so
 .Python
@@ -27,7 +29,7 @@ logs/
 
 # Runtime data files
 output/
-input/meta/
+input/
 tables/input/*.xlsx
 tables/input/*.xls
 tables/output/*.xlsx

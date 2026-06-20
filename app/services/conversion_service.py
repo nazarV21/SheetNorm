@@ -64,7 +64,13 @@ class ConversionService:
             if not rule:
                 return {"error": "Выбранное правило не найдено", "job_id": job_id}
 
-        result_df = self._convert_path(source_path=source_path, rule=rule, options=options)
+        try:
+            result_df = self._convert_path(source_path=source_path, rule=rule, options=options)
+        except ConversionValidationError as exc:
+            return {"error": exc.message, "details": "Не удалось применить выбранный шаблон.", "suggestion": "Проверьте структуру файла или создайте новый шаблон через AI-помощник.", "code": "RULE_APPLICATION_FAILED", "diagnostics": exc.diagnostics}
+        except Exception as exc:
+            current_app.logger.exception("Rule conversion failed")
+            return {"error": "Файл не удалось обработать", "details": str(exc), "suggestion": "Проверьте, что Excel-файл не повреждён и соответствует выбранному шаблону.", "code": "EXCEL_PROCESSING_FAILED"}
         return self._finish(job_id, source_path, result_df, rule)
 
     def _build_instruction_rule(
@@ -95,7 +101,13 @@ class ConversionService:
         if not source_path.exists():
             return {"error": "Файл не найден", "job_id": job_id}
         rule = self._build_instruction_rule(instruction, generated_rule, name="Разовая инструкция")
-        result_df = self._convert_path(source_path=source_path, rule=rule, options=options or {})
+        try:
+            result_df = self._convert_path(source_path=source_path, rule=rule, options=options or {})
+        except ConversionValidationError as exc:
+            return {"error": exc.message, "details": "Инструкция не применилась к структуре файла.", "suggestion": "Уточните строки заголовков, начало данных и требуемые колонки.", "code": "INSTRUCTION_FAILED", "diagnostics": exc.diagnostics}
+        except Exception as exc:
+            current_app.logger.exception("Instruction conversion failed")
+            return {"error": "Файл не удалось обработать", "details": str(exc), "suggestion": "Проверьте файл и уточните инструкцию.", "code": "EXCEL_PROCESSING_FAILED"}
         return self._finish(job_id, source_path, result_df, rule)
 
     def convert_with_instruction_checked(
@@ -124,7 +136,10 @@ class ConversionService:
             )
         except ConversionValidationError as exc:
             return {"error": exc.message, "job_id": job_id, "diagnostics": exc.diagnostics}
-        result = self._finish(job_id, source_path, result_df, rule)
+        except Exception as exc:
+            current_app.logger.exception("Checked conversion failed")
+            return {"error": "Файл не удалось обработать", "job_id": job_id, "diagnostics": [{"severity": "error", "stage": "excel", "message": str(exc), "hint": "Проверьте целостность файла и выбранный лист."}]}
+        result = self._finish(job_id, source_path, result_df, rule, diagnostics=diagnostics)
         result["diagnostics"] = diagnostics
         return result
 
@@ -153,6 +168,9 @@ class ConversionService:
             )
         except ConversionValidationError as exc:
             return {"error": exc.message, "job_id": job_id, "diagnostics": exc.diagnostics}
+        except Exception as exc:
+            current_app.logger.exception("Preview conversion failed")
+            return {"error": "Предпросмотр не сформирован", "job_id": job_id, "diagnostics": [{"severity": "error", "stage": "preview", "message": str(exc), "hint": "Проверьте целостность файла и уточните инструкцию."}]}
         preview = self.dataframe_to_preview(df, max_rows=max_rows)
         preview["total_rows"] = int(len(df))
         preview["total_columns"] = int(len(df.columns))
@@ -219,9 +237,13 @@ class ConversionService:
         source_path = self.file_manager.resolve_input(job_id)
         if not source_path.exists():
             return {"error": "Файл не найден", "job_id": job_id}
-        df = pd.read_excel(source_path)
-        if schema:
-            df = self._apply_schema(df, schema)
+        try:
+            df = pd.read_excel(source_path)
+            if schema:
+                df = self._apply_schema(df, schema)
+        except Exception as exc:
+            current_app.logger.exception("Schema conversion failed")
+            return {"error": "Файл не удалось прочитать как Excel", "details": str(exc), "suggestion": "Проверьте расширение и целостность файла.", "code": "INVALID_EXCEL_FILE"}
         return self._finish(job_id, source_path, df, None)
 
     def _convert_path(self, source_path: Path, rule: dict[str, Any] | None, options: dict[str, Any]) -> pd.DataFrame:
@@ -513,13 +535,27 @@ class ConversionService:
                     pass
         return df
 
-    def _save_dataframe(self, df: pd.DataFrame, source_path: Path, job_id: str, rule: dict[str, Any] | None = None) -> Path:
+    def _save_dataframe(
+        self,
+        df: pd.DataFrame,
+        source_path: Path,
+        job_id: str,
+        rule: dict[str, Any] | None = None,
+        quality_report: dict[str, Any] | None = None,
+    ) -> Path:
         output_path = self.file_manager.prepare_output(job_id, extension=".xlsx")
         df.to_excel(output_path, index=False, engine="openpyxl", sheet_name="Результат")
-        self._format_excel_report(output_path, df, rule)
+        self._format_excel_report(output_path, df, rule, source_path, quality_report or {})
         return output_path
 
-    def _format_excel_report(self, output_path: Path, df: pd.DataFrame, rule: dict[str, Any] | None) -> None:
+    def _format_excel_report(
+        self,
+        output_path: Path,
+        df: pd.DataFrame,
+        rule: dict[str, Any] | None,
+        source_path: Path,
+        quality_report: dict[str, Any],
+    ) -> None:
         """Добавляет в итоговый Excel удобный отчётный слой.
 
         Если правило содержит excel_report, файл получает:
@@ -530,8 +566,6 @@ class ConversionService:
         """
         generated_rule = (rule or {}).get("generated_rule") or {}
         report = generated_rule.get("excel_report") or (rule or {}).get("excel_report") or {}
-        if not report or not report.get("enabled"):
-            return
 
         try:
             wb = load_workbook(output_path)
@@ -580,10 +614,50 @@ class ConversionService:
             if summary_cfg.get("enabled"):
                 self._add_summary_sheet(wb, df, summary_cfg)
 
+            self._add_processing_summary_sheet(wb, source_path, rule, quality_report)
+
             wb.save(output_path)
         except Exception:
             # Форматирование отчёта не должно ломать саму конвертацию.
             return
+
+    def _add_processing_summary_sheet(
+        self,
+        wb,
+        source_path: Path,
+        rule: dict[str, Any] | None,
+        quality_report: dict[str, Any],
+    ) -> None:
+        sheet_name = "processing_summary"
+        if sheet_name in wb.sheetnames:
+            del wb[sheet_name]
+        ws = wb.create_sheet(sheet_name)
+        ws.append(["Параметр", "Значение"])
+        rows = [
+            ("Продукт", "SheetNorm"),
+            ("Исходный файл", source_path.name),
+            ("Шаблон", (rule or {}).get("name") or "Без шаблона"),
+            ("Дата обработки", datetime.now().isoformat(timespec="seconds")),
+            ("Строк до", quality_report.get("rows_input", "")),
+            ("Строк после", quality_report.get("rows_output", "")),
+            ("Колонок до", quality_report.get("columns_input", "")),
+            ("Колонок после", quality_report.get("columns_output", "")),
+            ("Пустых ячеек до", quality_report.get("empty_cells_before", "")),
+            ("Пустых ячеек после", quality_report.get("empty_cells_after", "")),
+            ("Тип таблицы", quality_report.get("detected_table_type", "")),
+            ("Статус качества", quality_report.get("quality_status", "")),
+            ("Уверенность", quality_report.get("confidence_score", "")),
+            ("Предупреждения", "; ".join(quality_report.get("warnings") or []) or "Нет"),
+            ("Операции", "; ".join(quality_report.get("applied_operations") or []) or "Базовая нормализация"),
+        ]
+        for row in rows:
+            ws.append(row)
+        for cell in ws[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="183B56")
+        ws.column_dimensions["A"].width = 24
+        ws.column_dimensions["B"].width = 72
+        ws.freeze_panes = "A2"
 
     def _add_summary_sheet(self, wb, df: pd.DataFrame, summary_cfg: dict[str, Any]) -> None:
         group_by = summary_cfg.get("group_by") or []
@@ -592,7 +666,7 @@ class ConversionService:
             group_columns = self._match_existing_columns(df, ["Филиал", "Подразделение", "Регион", "Город", "Branch", "Region"])
         numeric_indexes = self._detect_numeric_columns(df)
         numeric_columns = [df.columns[idx] for idx in numeric_indexes]
-        if not group_columns or not numeric_columns:
+        if not numeric_columns:
             return
 
         work_df = df.copy()
@@ -601,7 +675,11 @@ class ConversionService:
                 work_df[col].astype(str).str.replace(" ", "", regex=False).str.replace(",", ".", regex=False),
                 errors="coerce",
             )
-        summary = work_df.groupby(group_columns, dropna=False)[numeric_columns].sum(min_count=1).reset_index()
+        if group_columns:
+            summary = work_df.groupby(group_columns, dropna=False)[numeric_columns].sum(min_count=1).reset_index()
+        else:
+            summary = work_df[numeric_columns].sum(min_count=1).to_frame().T
+            summary.insert(0, "Итог", "Всего")
 
         sheet_name = str(summary_cfg.get("sheet_name") or "Итоги")[:31]
         if sheet_name in wb.sheetnames:
@@ -645,8 +723,58 @@ class ConversionService:
                         result.append(original)
         return result
 
-    def _finish(self, job_id: str, source_path: Path, df: pd.DataFrame, rule: dict[str, Any] | None) -> dict[str, Any]:
-        output_path = self._save_dataframe(df, source_path, job_id, rule=rule)
+    def _build_quality_report(
+        self,
+        source_path: Path,
+        df: pd.DataFrame,
+        rule: dict[str, Any] | None,
+        diagnostics: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        try:
+            source_df = pd.read_excel(source_path, sheet_name=0, header=None)
+            rows_input, columns_input = source_df.shape
+            empty_before = int(source_df.isna().sum().sum())
+        except Exception:
+            rows_input, columns_input, empty_before = 0, 0, 0
+
+        diagnostics = diagnostics or []
+        warnings = [str(item.get("message")) for item in diagnostics if item.get("severity") in {"warning", "error"}]
+        generated_rule = (rule or {}).get("generated_rule") or {}
+        operations: list[str] = []
+        if generated_rule.get("header_rows"):
+            operations.append("Определение заголовков")
+        if generated_rule.get("drop_rows_contains"):
+            operations.append("Удаление служебных/итоговых строк")
+        if generated_rule.get("melt", {}).get("enabled") or generated_rule.get("table_type") == "cross_table":
+            operations.append("Преобразование в длинный формат")
+        operations.append("Удаление пустых строк и колонок")
+
+        quality_status = "warning" if warnings else "success"
+        confidence = 0.75 if warnings else 0.92
+        return {
+            "rows_input": int(rows_input),
+            "rows_output": int(len(df)),
+            "columns_input": int(columns_input),
+            "columns_output": int(len(df.columns)),
+            "empty_cells_before": empty_before,
+            "empty_cells_after": int(df.isna().sum().sum()),
+            "warnings": warnings,
+            "detected_table_type": generated_rule.get("table_type") or (rule or {}).get("table_type") or "flat",
+            "applied_operations": operations,
+            "confidence_score": confidence,
+            "quality_status": quality_status,
+        }
+
+    def _finish(
+        self,
+        job_id: str,
+        source_path: Path,
+        df: pd.DataFrame,
+        rule: dict[str, Any] | None,
+        diagnostics: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        quality_report = self._build_quality_report(source_path, df, rule, diagnostics)
+        output_path = self._save_dataframe(df, source_path, job_id, rule=rule, quality_report=quality_report)
         original_name = self.file_manager.get_original_filename(job_id)
         result = {
             "job_id": job_id,
@@ -658,6 +786,7 @@ class ConversionService:
             "status": "converted",
             "rule_id": rule.get("id") if rule else None,
             "rule_name": rule.get("name") if rule else None,
+            "quality_report": quality_report,
         }
         self._append_history_entry(result)
         return result

@@ -1,57 +1,65 @@
 {% extends "layout.html" %}
-
+{% block title %}Шаблоны — SheetNorm{% endblock %}
 {% block content %}
-  <h2>Правила и типовые шаблоны</h2>
-  <p class="meta">
-    Шаблон содержит человеческую инструкцию, улучшенную AI-помощником, и при наличии — JSON-правило для алгоритмического преобразования.
-  </p>
-
-  <p class="meta" style="margin-bottom: 16px;">
+  <div class="page-header"><div><div class="eyebrow">Библиотека правил</div><h1>Шаблоны обработки</h1><p class="lead">Проверяемые инструкции и формализованные правила для повторяющихся Excel-отчётов.</p></div></div>
+  <div class="button-row" style="margin-bottom:16px;">
     <a class="action-link" href="{{ url_for('web.instruction_assistant') }}">Создать через AI-помощник</a>
     <a class="action-link secondary" href="{{ url_for('web.new_rule') }}">Создать вручную</a>
-  </p>
+    <a class="action-link secondary" href="{{ url_for('web.export_rules') }}">Экспорт JSON</a>
+    <form method="post" action="{{ url_for('web.import_rules') }}" enctype="multipart/form-data" class="button-row">
+      <label class="file-label"><span>Импорт JSON</span><input type="file" name="rules_file" accept=".json" required onchange="this.form.submit()"></label>
+    </form>
+  </div>
+
+  <div class="filter-bar">
+    <input type="search" id="rule-search" placeholder="Поиск по шаблонам" aria-label="Поиск по шаблонам">
+    <select id="category-filter" aria-label="Фильтр по категории"><option value="">Все категории</option>{% for category in rules|map(attribute='category')|unique|sort %}<option value="{{ category }}">{{ category }}</option>{% endfor %}</select>
+  </div>
 
   {% if not rules %}
-    <p class="meta">Правила пока не созданы.</p>
+    <div class="empty-state"><strong>Шаблоны ещё не созданы</strong><p>Начните с AI-помощника: он проанализирует файл и подготовит проект правила.</p></div>
   {% else %}
-    <div style="display: flex; flex-direction: column; gap: 16px;">
+    <div class="rule-list" id="rules-list">
       {% for rule in rules %}
-        <div class="rule-card">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
-            <div>
-              <h3 style="margin:0 0 6px;font-size:16px;font-weight:600;">{{ rule.name }}</h3>
-              <div class="badge-row">
-                <span class="badge">{{ rule.domain or 'universal' }}</span>
-                {% if rule.generated_rule %}<span class="badge ok">JSON-правило</span>{% endif %}
-                {% if rule.use_raw_data %}<span class="badge">сырые данные</span>{% endif %}
-                {% if rule.fingerprint and rule.fingerprint.table_type %}<span class="badge">{{ rule.fingerprint.table_type }}</span>{% endif %}
-              </div>
-            </div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <a class="small-btn" href="{{ url_for('web.edit_rule', rule_id=rule.id) }}">Редактировать</a>
-              <form method="post" action="{{ url_for('web.delete_rule', rule_id=rule.id) }}" style="display:inline;">
-                <button type="submit" onclick="return confirm('Удалить правило {{ rule.name }}?');" class="danger-btn">Удалить</button>
-              </form>
+        <article class="rule-card" data-search="{{ (rule.name ~ ' ' ~ rule.description ~ ' ' ~ rule.domain ~ ' ' ~ rule.tags|join(' '))|lower }}" data-category="{{ rule.category }}">
+          <div class="rule-card-head">
+            <div><h3>{{ rule.name }}</h3><p class="meta">{{ rule.description or 'Описание не добавлено.' }}</p></div>
+            <div class="button-row">
+              <a class="small-btn secondary" href="{{ url_for('web.edit_rule', rule_id=rule.id) }}">Открыть</a>
+              <a class="small-btn" href="{{ url_for('web.index', rule_id=rule.id) }}">Протестировать</a>
+              <form method="post" action="{{ url_for('web.duplicate_rule', rule_id=rule.id) }}"><button type="submit" class="secondary">Копия</button></form>
+              <form method="post" action="{{ url_for('web.delete_rule', rule_id=rule.id) }}"><button type="submit" class="danger-btn" onclick="return confirm('Удалить шаблон {{ rule.name }}?');">Удалить</button></form>
             </div>
           </div>
-
-          {% if rule.description %}
-            <p class="meta">{{ rule.description }}</p>
-          {% endif %}
-
-          <div class="prompt-box">
-            <strong>Инструкция:</strong>
-            <p>{{ rule.ai_improved_instruction or rule.prompt }}</p>
+          <div class="badge-row">
+            <span class="badge">{{ rule.category }}</span><span class="badge">{{ rule.table_type }}</span><span class="badge">v{{ rule.version }}</span>
+            {% if rule.use_raw_data %}<span class="badge">raw-data</span>{% endif %}
+            {% if rule.ai_improved_instruction %}<span class="badge ok">AI-инструкция</span>{% endif %}
+            {% if rule.generated_rule %}<span class="badge ok">JSON-правило</span>{% endif %}
+            {% if rule.validation_warnings %}<span class="badge warn">Есть предупреждения</span>{% endif %}
           </div>
-
-          {% if rule.raw_user_prompt and rule.raw_user_prompt != (rule.ai_improved_instruction or rule.prompt) %}
-            <details>
-              <summary>Исходная формулировка пользователя</summary>
-              <p class="meta">{{ rule.raw_user_prompt }}</p>
-            </details>
-          {% endif %}
-        </div>
+          <div class="grid-2">
+            <div class="meta"><strong>Домен:</strong> {{ rule.domain }}<br><strong>Обновлён:</strong> {{ rule.updated_at or rule.created_at or '—' }}</div>
+            <div class="meta"><strong>Лист:</strong> {{ rule.sheet_name if rule.sheet_name is not none else 'автоматически' }}<br><strong>Теги:</strong> {{ rule.tags|join(', ') if rule.tags else '—' }}</div>
+          </div>
+          <details><summary>Инструкция шаблона</summary><div class="prompt-box"><p>{{ rule.ai_improved_instruction or rule.prompt }}</p></div></details>
+          {% if rule.validation_warnings %}<div class="warning-box"><strong>Проверить перед применением:</strong> {{ rule.validation_warnings|join(' ') }}</div>{% endif %}
+        </article>
       {% endfor %}
     </div>
+    <div class="empty-state" id="rules-empty" hidden>Шаблоны по выбранным условиям не найдены.</div>
   {% endif %}
+  <script>
+    const search = document.getElementById('rule-search');
+    const category = document.getElementById('category-filter');
+    function filterRules() {
+      let visible = 0;
+      document.querySelectorAll('#rules-list .rule-card').forEach(card => {
+        const show = (!search.value.trim() || card.dataset.search.includes(search.value.toLowerCase().trim())) && (!category.value || card.dataset.category === category.value);
+        card.hidden = !show; if (show) visible += 1;
+      });
+      const empty = document.getElementById('rules-empty'); if (empty) empty.hidden = visible > 0;
+    }
+    search.addEventListener('input', filterRules); category.addEventListener('change', filterRules);
+  </script>
 {% endblock %}

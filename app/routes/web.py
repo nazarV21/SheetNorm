@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
-import uuid
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +15,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_file,
     send_from_directory,
     url_for,
 )
@@ -26,53 +26,74 @@ from app.services.table_structure_analyzer import TableStructureAnalyzer
 from app.utils.rules_store import RulesStore
 from app.utils.training_examples_store import TrainingExamplesStore
 from app.utils.feedback_store import FeedbackStore
+from app.utils.uploads import is_excel_filename, sanitize_upload_name, save_excel_upload
 
 
 web_bp = Blueprint("web", __name__)
-ALLOWED_EXCEL_EXTENSIONS = {".xlsx", ".xls"}
-
-
 def _sanitize_filename(name: str) -> str:
-    name = os.path.basename(name)
-    forbidden = '<>:"/\\\\|?*'
-    return "".join("_" if ch in forbidden else ch for ch in name)
+    return sanitize_upload_name(name)
 
 
 def _is_excel_filename(name: str) -> bool:
-    return Path(name).suffix.lower() in ALLOWED_EXCEL_EXTENSIONS
+    return is_excel_filename(name)
 
 
 def _save_uploaded_file(file) -> tuple[str, str, Path]:
-    job_id = str(uuid.uuid4())
-    original_filename = _sanitize_filename(file.filename)
-    filename = f"{job_id}__{original_filename}"
-    input_dir = Path(current_app.config["INPUT_DIR"])
-    input_dir.mkdir(parents=True, exist_ok=True)
-    meta_dir = input_dir / "meta"
-    meta_dir.mkdir(parents=True, exist_ok=True)
-    target_path = input_dir / filename
-    file.save(target_path)
-    (meta_dir / f"{job_id}.meta.json").write_text(
-        json.dumps(
-            {"job_id": job_id, "filename": filename, "original_filename": original_filename},
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    return job_id, original_filename, target_path
+    return save_excel_upload(file, current_app.config["INPUT_DIR"])
 
 
 def _parse_json_field(value: str | None, default: Any = None) -> Any:
     if not value:
         return default
+
+
+def _parse_rule_json(value: str | None) -> tuple[dict[str, Any], list[str]]:
+    if not value or not value.strip():
+        return {}, []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        return {}, [f"JSON-правило не разобрано: строка {exc.lineno}, столбец {exc.colno}."]
+    if not isinstance(parsed, dict):
+        return {}, ["JSON-правило должно быть объектом, а не массивом или строкой."]
+    return parsed, []
     try:
         return json.loads(value)
     except json.JSONDecodeError:
         return default
 
 
-@web_bp.route("/", methods=["GET", "POST"])
+def _strip_request_only_report_config(generated_rule: dict[str, Any]) -> dict[str, Any]:
+    rule = dict(generated_rule or {})
+    rule.pop("excel_report", None)
+    rule.pop("user_intent", None)
+    return rule
+
+
+@web_bp.get("/")
+def dashboard():
+    rules = RulesStore().list_rules()
+    history_path = Path(current_app.config["HISTORY_FILE"])
+    try:
+        history_items = json.loads(history_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        history_items = []
+    training_stats = TrainingExamplesStore().get_stats()
+    return render_template(
+        "dashboard.html",
+        rules_count=len(rules),
+        conversions_count=len(history_items),
+        training_stats=training_stats,
+        ai_backend=current_app.config.get("AI_BACKEND", "fallback"),
+    )
+
+
+@web_bp.post("/")
+def legacy_index_post():
+    return index()
+
+
+@web_bp.route("/convert", methods=["GET", "POST"])
 def index():
     rules_store = RulesStore()
     rules = rules_store.list_rules()
@@ -123,7 +144,7 @@ def index():
                     name=new_rule_name,
                     prompt=instruction,
                     raw_prompt=custom_instruction,
-                    generated_rule=generated_rule,
+                    generated_rule=_strip_request_only_report_config(generated_rule),
                     fingerprint=fingerprint,
                     description="Создано из инструкции пользователя при загрузке файла",
                     domain=request.form.get("domain") or "universal",
@@ -151,9 +172,15 @@ def index():
             format="Excel",
             rule_name=result.get("rule_name"),
             instruction_details=instruction_details,
+            quality_report=result.get("quality_report"),
         )
 
-    return render_template("index.html", rules=rules)
+    return render_template("index.html", rules=rules, selected_rule_id=request.args.get("rule_id", ""))
+
+
+@web_bp.get("/about")
+def about():
+    return render_template("about.html")
 
 
 @web_bp.get("/download/<path:filename>")
@@ -528,6 +555,7 @@ def assistant_convert_checked():
             "instruction_changes": [],
             "engine": "AI-помощник + проверенная конвертация",
         },
+        quality_report=conversion.get("quality_report"),
     )
 
 
@@ -549,7 +577,7 @@ def save_assistant_rule():
         name=name,
         prompt=prompt,
         raw_prompt=raw_prompt,
-        generated_rule=generated_rule,
+        generated_rule=_strip_request_only_report_config(generated_rule),
         fingerprint=fingerprint,
         description="Создано через AI-помощник. JSON-правило сформировано автоматически из инструкции.",
         domain=domain,
@@ -575,6 +603,67 @@ def rules_list():
     return render_template("rules.html", rules=rules)
 
 
+@web_bp.post("/rules/<rule_id>/duplicate")
+def duplicate_rule(rule_id: str):
+    rule = RulesStore().duplicate_rule(rule_id)
+    if not rule:
+        flash("Шаблон для копирования не найден.", "error")
+    else:
+        flash(f"Создана копия шаблона: {rule['name']}.", "success")
+    return redirect(url_for("web.rules_list"))
+
+
+@web_bp.get("/rules/export")
+def export_rules():
+    payload = json.dumps(RulesStore().list_rules(), ensure_ascii=False, indent=2).encode("utf-8")
+    return send_file(
+        BytesIO(payload),
+        mimetype="application/json",
+        as_attachment=True,
+        download_name="sheetnorm_rules.json",
+    )
+
+
+@web_bp.post("/rules/import")
+def import_rules():
+    incoming = request.files.get("rules_file")
+    if not incoming or incoming.filename == "":
+        flash("Выберите JSON-файл с шаблонами.", "error")
+        return redirect(url_for("web.rules_list"))
+    try:
+        payload = json.load(incoming.stream)
+        if not isinstance(payload, list):
+            raise ValueError("корневой элемент должен быть массивом")
+        store = RulesStore()
+        added = 0
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            prompt = str(item.get("prompt") or item.get("ai_improved_instruction") or "").strip()
+            if not name or not prompt:
+                continue
+            store.add_rule(
+                name=name,
+                prompt=prompt,
+                raw_prompt=item.get("raw_user_prompt"),
+                generated_rule=item.get("generated_rule") or {},
+                fingerprint=item.get("fingerprint") or {},
+                description=item.get("description"),
+                domain=item.get("domain") or "universal",
+                use_raw_data=item.get("use_raw_data"),
+                sheet_name=item.get("sheet_name"),
+                category=item.get("category"),
+                table_type=item.get("table_type"),
+                tags=item.get("tags") or [],
+            )
+            added += 1
+        flash(f"Импортировано шаблонов: {added}.", "success")
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+        flash(f"Не удалось импортировать шаблоны: {exc}.", "error")
+    return redirect(url_for("web.rules_list"))
+
+
 @web_bp.route("/rules/new", methods=["GET", "POST"])
 def new_rule():
     if request.method == "POST":
@@ -582,9 +671,12 @@ def new_rule():
         prompt = request.form.get("prompt", "").strip()
         raw_prompt = request.form.get("raw_user_prompt", "").strip() or prompt
         domain = request.form.get("domain", "universal").strip() or "universal"
+        category = request.form.get("category", "universal").strip() or domain
+        table_type = request.form.get("table_type", "flat").strip() or "flat"
+        tags = [item.strip() for item in request.form.get("tags", "").split(",") if item.strip()]
         use_raw_data_checked = request.form.get("use_raw_data") == "1"
         sheet_name = request.form.get("sheet_name", "").strip() or None
-        generated_rule = _parse_json_field(request.form.get("generated_rule"), {})
+        generated_rule, parse_warnings = _parse_rule_json(request.form.get("generated_rule"))
         if not name:
             flash("Укажите название правила.", "error")
             return redirect(url_for("web.new_rule"))
@@ -592,7 +684,7 @@ def new_rule():
             flash("Опишите правило преобразования.", "error")
             return redirect(url_for("web.new_rule"))
         store = RulesStore()
-        store.add_rule(
+        rule = store.add_rule(
             name=name,
             prompt=prompt,
             raw_prompt=raw_prompt,
@@ -600,8 +692,13 @@ def new_rule():
             domain=domain,
             use_raw_data=use_raw_data_checked,
             sheet_name=sheet_name,
+            category=category,
+            table_type=table_type,
+            tags=tags,
         )
-        flash("Правило сохранено.", "info")
+        for warning in parse_warnings + list(rule.get("validation_warnings") or []):
+            flash(warning, "warning")
+        flash("Шаблон сохранён.", "success")
         return redirect(url_for("web.rules_list"))
     return render_template("rules_new.html")
 
@@ -620,7 +717,12 @@ def edit_rule(rule_id: str):
         use_raw_data_checked = request.form.get("use_raw_data") == "1"
         sheet_name = request.form.get("sheet_name", "").strip() or None
         domain = request.form.get("domain", "universal").strip() or "universal"
-        generated_rule = _parse_json_field(request.form.get("generated_rule"), rule.get("generated_rule") or {})
+        category = request.form.get("category", rule.get("category") or domain).strip() or domain
+        table_type = request.form.get("table_type", rule.get("table_type") or "flat").strip() or "flat"
+        tags = [item.strip() for item in request.form.get("tags", "").split(",") if item.strip()]
+        generated_rule, parse_warnings = _parse_rule_json(request.form.get("generated_rule"))
+        if parse_warnings:
+            generated_rule = rule.get("generated_rule") or {}
         if not name:
             flash("Укажите название правила.", "error")
             return redirect(url_for("web.edit_rule", rule_id=rule_id))
@@ -636,9 +738,14 @@ def edit_rule(rule_id: str):
             sheet_name=sheet_name,
             domain=domain,
             generated_rule=generated_rule,
+            category=category,
+            table_type=table_type,
+            tags=tags,
         )
         if updated:
-            flash("Правило успешно обновлено.", "info")
+            for warning in parse_warnings + list(updated.get("validation_warnings") or []):
+                flash(warning, "warning")
+            flash("Шаблон успешно обновлён.", "success")
             return redirect(url_for("web.rules_list"))
         flash("Ошибка при обновлении правила.", "error")
         return redirect(url_for("web.edit_rule", rule_id=rule_id))

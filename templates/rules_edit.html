@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 
 {% block content %}
-  <h2>Редактировать правило</h2>
+  <div class="page-header"><div><div class="eyebrow">Библиотека правил</div><h1>Редактировать шаблон</h1></div></div>
   <p class="meta">
     Здесь хранится не только промпт, но и формализованное JSON-правило. Если JSON пустой, система будет использовать текстовую инструкцию и обучающие примеры.
   </p>
@@ -12,9 +12,11 @@
       <input id="name" name="name" type="text" value="{{ rule.name }}" required>
     </div>
 
-    <div class="field">
-      <label for="domain">Сфера / домен</label>
-      <input id="domain" name="domain" type="text" value="{{ rule.domain or 'universal' }}">
+    <div class="grid-2">
+      <div class="field"><label for="domain">Домен</label><input id="domain" name="domain" type="text" value="{{ rule.domain or 'universal' }}"></div>
+      <div class="field"><label for="category">Категория</label><input id="category" name="category" type="text" value="{{ rule.category or rule.domain or 'universal' }}"></div>
+      <div class="field"><label for="table_type">Тип таблицы</label><select id="table_type" name="table_type"><option value="flat" {% if rule.table_type == 'flat' %}selected{% endif %}>Плоская таблица</option><option value="multi_header" {% if rule.table_type == 'multi_header' %}selected{% endif %}>Многоуровневый заголовок</option><option value="cross_table" {% if rule.table_type == 'cross_table' %}selected{% endif %}>Кросс-таблица</option></select></div>
+      <div class="field"><label for="tags">Теги через запятую</label><input id="tags" name="tags" type="text" value="{{ rule.tags|join(', ') }}"></div>
     </div>
 
     <div class="field">

@@ -1,0 +1,65 @@
+{% extends "layout.html" %}
+{% block title %}SheetNorm — подготовка Excel для аналитики{% endblock %}
+{% block content %}
+  <div class="page-header">
+    <div>
+      <div class="eyebrow">Локальная нормализация Excel</div>
+      <h1>Сложные отчёты превращаются в проверяемые наборы данных</h1>
+      <p class="lead">SheetNorm помогает подготовить Excel-файлы к загрузке в 1С, Power BI, SQL, BI-системы и корпоративные хранилища. AI-помощник предлагает правило, пользователь проверяет результат, а утверждённая логика сохраняется как повторяемый шаблон.</p>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div><span class="metric-value">{{ rules_count }}</span><span class="meta">шаблонов обработки</span></div>
+    <div><span class="metric-value">{{ conversions_count }}</span><span class="meta">конвертаций в истории</span></div>
+    <div><span class="metric-value">{{ training_stats.available }}</span><span class="meta">обучающих примеров</span></div>
+    <div><span class="metric-value">Локально</span><span class="meta">файлы не уходят во внешние AI API</span></div>
+  </div>
+
+  <section class="section-band">
+    <h2>Для чего нужен продукт</h2>
+    <div class="grid-3" style="margin-top:14px;">
+      <div class="feature"><strong>Неоднородные отчёты</strong><span class="meta">Служебные строки, объединённые ячейки, многоуровневые заголовки и итоги внутри таблицы.</span></div>
+      <div class="feature"><strong>Повторяемая обработка</strong><span class="meta">Утверждённое правило сохраняется и применяется к следующим файлам того же формата.</span></div>
+      <div class="feature"><strong>Подготовка к загрузке</strong><span class="meta">Результат получает плоскую структуру, понятные колонки, автофильтр и технический отчёт.</span></div>
+    </div>
+  </section>
+
+  <section class="section-band">
+    <h2>Как работает</h2>
+    <div class="workflow" style="margin-top:14px;">
+      <div class="workflow-item">Загрузить Excel</div>
+      <div class="workflow-item">Описать результат</div>
+      <div class="workflow-item">Проверить предпросмотр</div>
+      <div class="workflow-item">Сохранить шаблон</div>
+      <div class="workflow-item">Применять повторно</div>
+    </div>
+  </section>
+
+  <section class="section-band">
+    <h2>Что умеет распознавать</h2>
+    <div class="grid-2" style="margin-top:14px;">
+      <div class="panel"><strong>Структура</strong><p class="meta">Строки заголовков, начало данных, служебные строки, итоги, пустые области и объединённые ячейки.</p></div>
+      <div class="panel"><strong>Форма таблицы</strong><p class="meta">Плоские таблицы, многоуровневые заголовки и кросс-таблицы с периодами или показателями в колонках.</p></div>
+    </div>
+  </section>
+
+  <section class="section-band">
+    <h2>Бизнес-эффект</h2>
+    <div class="grid-4" style="margin-top:14px;">
+      <div class="metric"><strong>Меньше ручной очистки</strong></div>
+      <div class="metric"><strong>Меньше случайных ошибок</strong></div>
+      <div class="metric"><strong>Проверяемые правила</strong></div>
+      <div class="metric"><strong>Быстрый повторный экспорт</strong></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Начать обработку</h2>
+    <p class="meta">Для нового формата начните с AI-помощника. Для регулярного отчёта используйте готовый шаблон.</p>
+    <div class="button-row">
+      <a class="action-link" href="{{ url_for('web.instruction_assistant') }}">Открыть AI-помощник</a>
+      <a class="action-link secondary" href="{{ url_for('web.index') }}">Применить шаблон</a>
+    </div>
+  </section>
+{% endblock %}

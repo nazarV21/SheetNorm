@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 
 {% block content %}
-  <h2>Новое правило / шаблон обработки</h2>
+  <div class="page-header"><div><div class="eyebrow">Библиотека правил</div><h1>Новый шаблон обработки</h1></div></div>
   <p class="meta">
     Рекомендуемый путь: сначала использовать <a href="{{ url_for('web.instruction_assistant') }}">AI-помощник</a>, а затем сохранить готовую инструкцию. Здесь можно создать правило вручную.
   </p>
@@ -12,9 +12,11 @@
       <input id="name" name="name" type="text" placeholder="Например: Кросс-таблица по филиалам и месяцам" required>
     </div>
 
-    <div class="field">
-      <label for="domain">Сфера / домен</label>
-      <input id="domain" name="domain" type="text" value="universal" placeholder="universal / finance / production / hr">
+    <div class="grid-2">
+      <div class="field"><label for="domain">Домен</label><input id="domain" name="domain" type="text" value="universal" placeholder="finance / production / hr"></div>
+      <div class="field"><label for="category">Категория</label><input id="category" name="category" type="text" value="universal" placeholder="sales / warehouse / oil-and-gas"></div>
+      <div class="field"><label for="table_type">Тип таблицы</label><select id="table_type" name="table_type"><option value="flat">Плоская таблица</option><option value="multi_header">Многоуровневый заголовок</option><option value="cross_table">Кросс-таблица</option></select></div>
+      <div class="field"><label for="tags">Теги через запятую</label><input id="tags" name="tags" type="text" placeholder="ежемесячный, продажи"></div>
     </div>
 
     <div class="field">
@@ -44,6 +46,6 @@
       </div>
     </details>
 
-    <button type="submit">Сохранить правило</button>
+    <button type="submit">Сохранить шаблон</button>
   </form>
 {% endblock %}

@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 
 {% block content %}
-  <h2>История конвертаций</h2>
+  <div class="page-header"><div><div class="eyebrow">Журнал операций</div><h1>История конвертаций</h1></div></div>
   
   {% if items %}
   <div style="margin-bottom: 16px;">
@@ -16,7 +16,7 @@
   {% endif %}
   
   {% if not items %}
-    <p class="meta">История пока пуста. Выполните первую конвертацию.</p>
+    <div class="empty-state"><strong>История пока пуста</strong><p>Выполните первую конвертацию, чтобы здесь появился отчёт и ссылка на результат.</p></div>
   {% else %}
     <div class="history-table-wrapper">
       <table class="history-table">

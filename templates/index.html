@@ -1,93 +1,94 @@
 {% extends "layout.html" %}
-
+{% block title %}Конвертация — SheetNorm{% endblock %}
 {% block content %}
-  <h2>Конвертация Excel</h2>
-  <p class="meta">
-    Загрузите Excel-файл и выберите способ обработки: готовый шаблон, новая инструкция или простая конвертация без правил.
-  </p>
+  <div class="page-header"><div><div class="eyebrow">Регулярная обработка</div><h1>Конвертация Excel</h1><p class="lead">Примените проверенный шаблон к новому файлу или опишите разовую задачу.</p></div></div>
 
   <form method="post" enctype="multipart/form-data" id="convert-form">
-    <div class="field">
-      <label for="file">Файл Excel</label>
-      <div class="file-row">
-        <label class="file-label">
-          <span>Выбрать файл</span>
-          <input id="file" type="file" name="file" accept=".xlsx,.xls" required onchange="updateFileName(this)">
-        </label>
-        <span class="file-name" id="file-name">Файл не выбран</span>
+    <section class="panel">
+      <h3>1. Выберите Excel-файл</h3>
+      <div class="drop-zone" id="drop-zone">
+        <div class="file-row">
+          <label class="file-label"><span>Выбрать файл</span><input id="file" type="file" name="file" accept=".xlsx,.xls" required></label>
+          <span class="file-name" id="file-name">Перетащите сюда файл .xlsx или .xls</span>
+        </div>
+        <p class="meta" id="file-meta" style="margin:8px 0 0;">Максимальный размер определяется настройкой сервера.</p>
       </div>
-    </div>
-
-    <div class="mode-grid">
-      <label class="mode-card">
-        <input type="radio" name="mode" value="rule" checked onchange="toggleMode()">
-        <strong>Готовый шаблон</strong>
-        <span>Для типовых таблиц: система применит сохранённую инструкцию и JSON-правило.</span>
-      </label>
-      <label class="mode-card">
-        <input type="radio" name="mode" value="custom" onchange="toggleMode()">
-        <strong>Новая инструкция</strong>
-        <span>Для нового формата: пользователь описывает задачу, AI-помощник улучшает промпт.</span>
-      </label>
-    </div>
-
-    <section id="rule-panel" class="panel">
-      <div class="field">
-        <label for="rule_id">Правило / шаблон обработки</label>
-        <select id="rule_id" name="rule_id">
-          <option value="">Без правил (сохранить как плоское чтение Excel)</option>
-          {% for rule in rules %}
-            <option value="{{ rule.id }}">{{ rule.name }}{% if rule.domain %} — {{ rule.domain }}{% endif %}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <p class="meta">
-        Если похожего шаблона ещё нет, откройте раздел <a href="{{ url_for('web.instruction_assistant') }}">AI-помощник</a> или используйте режим «Новая инструкция» ниже.
-      </p>
     </section>
 
-    <section id="custom-panel" class="panel" style="display:none;">
-      <div class="field">
-        <label for="custom_instruction">Инструкция простыми словами</label>
-        <textarea id="custom_instruction" name="custom_instruction" rows="6" placeholder="Например: нужно сделать фильтр по филиалам и посчитать итоги продаж для выбранного филиала. В таблице должно быть видно, что, где и когда продалось."></textarea>
-        <p class="meta">
-          Не обязательно писать идеально. Система проанализирует файл, покажет как поняла задачу в результате обработки и улучшит инструкцию перед применением. Для полноценного предпросмотра лучше использовать раздел AI-помощник.
-        </p>
+    <section class="panel">
+      <h3>2. Выберите способ обработки</h3>
+      <div class="mode-grid">
+        <label class="mode-card"><input type="radio" name="mode" value="rule" checked><strong>Готовый шаблон</strong><span>Для регулярных файлов с уже проверенной структурой.</span></label>
+        <label class="mode-card"><input type="radio" name="mode" value="custom"><strong>Новая инструкция</strong><span>Для разовой задачи или нового формата отчёта.</span></label>
       </div>
+    </section>
 
-      <div class="field inline-checks">
-        <label><input type="checkbox" name="improve_instruction" value="1" checked> Улучшить инструкцию с помощью AI-помощника</label>
-        <label><input type="checkbox" name="save_as_rule" value="1" onchange="toggleSaveRule(this)"> Сохранить как типовой шаблон</label>
+    <section id="rule-panel" class="panel">
+      <h3>3. Выберите шаблон</h3>
+      <div class="filter-bar">
+        <input type="search" id="rule-search" placeholder="Поиск по названию, описанию или домену" aria-label="Поиск шаблонов">
+        <select id="rule-filter" aria-label="Фильтр типа шаблона">
+          <option value="">Все типы</option><option value="flat">Плоская таблица</option><option value="multi_header">Многоуровневый заголовок</option><option value="cross_table">Кросс-таблица</option>
+        </select>
       </div>
+      <div class="rule-list" id="conversion-rules">
+        <label class="rule-card" data-search="без шаблона плоская таблица" data-type="flat">
+          <div class="rule-card-head"><div><h3>Без шаблона</h3><p class="meta">Обычное чтение первой таблицы. Используйте только для уже плоских файлов.</p></div><input type="radio" name="rule_id" value="" {% if not selected_rule_id %}checked{% endif %}></div>
+          <div class="badge-row"><span class="badge warn">Требует проверки</span><span class="badge">flat</span></div>
+        </label>
+        {% for rule in rules %}
+          <label class="rule-card" data-search="{{ (rule.name ~ ' ' ~ rule.description ~ ' ' ~ rule.domain ~ ' ' ~ rule.category)|lower }}" data-type="{{ rule.table_type }}">
+            <div class="rule-card-head"><div><h3>{{ rule.name }}</h3><p class="meta">{{ rule.description or 'Проверенный шаблон преобразования Excel.' }}</p></div><input type="radio" name="rule_id" value="{{ rule.id }}" {% if selected_rule_id == rule.id %}checked{% endif %}></div>
+            <div class="badge-row"><span class="badge">{{ rule.category or rule.domain }}</span><span class="badge">{{ rule.table_type }}</span>{% if rule.generated_rule %}<span class="badge ok">Формализован</span>{% endif %}</div>
+          </label>
+        {% endfor %}
+      </div>
+      <div class="empty-state" id="rules-empty" hidden>Шаблоны по выбранным условиям не найдены.</div>
+      <div class="warning-box" id="compatibility-warning">Перед обработкой убедитесь, что структура нового файла соответствует выбранному шаблону. Для нового формата используйте AI-помощник.</div>
+    </section>
 
-      <div id="save-rule-panel" style="display:none;">
-        <div class="field">
-          <label for="new_rule_name">Название нового шаблона</label>
-          <input id="new_rule_name" name="new_rule_name" type="text" placeholder="Например: Кросс-таблица по филиалам и месяцам">
-        </div>
-        <div class="field">
-          <label for="domain">Сфера / домен</label>
-          <input id="domain" name="domain" type="text" value="universal" placeholder="finance / production / hr / universal">
-        </div>
-      </div>
+    <section id="custom-panel" class="panel" hidden>
+      <h3>3. Опишите требуемый результат</h3>
+      <div class="field"><label for="custom_instruction">Инструкция простыми словами</label><textarea id="custom_instruction" name="custom_instruction" rows="6" placeholder="Например: заголовки на строке 4, данные начинаются со строки 5, строки Итого удалить, месяцы перенести в колонку Период."></textarea></div>
+      <div class="field inline-checks"><label><input type="checkbox" name="improve_instruction" value="1" checked> Уточнить инструкцию с помощью AI-помощника</label><label><input type="checkbox" name="save_as_rule" value="1" id="save-as-rule"> Сохранить результат как шаблон</label></div>
+      <div id="save-rule-panel" hidden><div class="grid-2"><div class="field"><label for="new_rule_name">Название шаблона</label><input id="new_rule_name" name="new_rule_name" type="text" placeholder="Например: Продажи по филиалам"></div><div class="field"><label for="domain">Категория</label><input id="domain" name="domain" type="text" value="universal"></div></div></div>
     </section>
 
     <button type="submit">Загрузить и конвертировать</button>
   </form>
 
   <script>
-    function updateFileName(input) {
-      const span = document.getElementById('file-name');
-      const files = input.files;
-      span.textContent = files && files[0] ? files[0].name : 'Файл не выбран';
+    const fileInput = document.getElementById('file');
+    const dropZone = document.getElementById('drop-zone');
+    function showFile(file) {
+      document.getElementById('file-name').textContent = file ? file.name : 'Перетащите сюда файл .xlsx или .xls';
+      document.getElementById('file-meta').textContent = file ? `${(file.size / 1024 / 1024).toFixed(2)} МБ · ${file.type || 'Excel'}` : 'Максимальный размер определяется настройкой сервера.';
     }
+    fileInput.addEventListener('change', () => showFile(fileInput.files[0]));
+    ['dragenter', 'dragover'].forEach(name => dropZone.addEventListener(name, event => { event.preventDefault(); dropZone.classList.add('dragover'); }));
+    ['dragleave', 'drop'].forEach(name => dropZone.addEventListener(name, event => { event.preventDefault(); dropZone.classList.remove('dragover'); }));
+    dropZone.addEventListener('drop', event => { if (event.dataTransfer.files.length) { fileInput.files = event.dataTransfer.files; showFile(fileInput.files[0]); } });
+
     function toggleMode() {
       const mode = document.querySelector('input[name="mode"]:checked').value;
-      document.getElementById('rule-panel').style.display = mode === 'rule' ? '' : 'none';
-      document.getElementById('custom-panel').style.display = mode === 'custom' ? '' : 'none';
+      document.getElementById('rule-panel').hidden = mode !== 'rule';
+      document.getElementById('custom-panel').hidden = mode !== 'custom';
     }
-    function toggleSaveRule(input) {
-      document.getElementById('save-rule-panel').style.display = input.checked ? '' : 'none';
+    document.querySelectorAll('input[name="mode"]').forEach(input => input.addEventListener('change', toggleMode));
+    document.getElementById('save-as-rule').addEventListener('change', event => { document.getElementById('save-rule-panel').hidden = !event.target.checked; });
+
+    function filterRules() {
+      const query = document.getElementById('rule-search').value.toLowerCase().trim();
+      const type = document.getElementById('rule-filter').value;
+      let visible = 0;
+      document.querySelectorAll('#conversion-rules .rule-card').forEach(card => {
+        const show = (!query || card.dataset.search.includes(query)) && (!type || card.dataset.type === type);
+        card.hidden = !show;
+        if (show) visible += 1;
+      });
+      document.getElementById('rules-empty').hidden = visible > 0;
     }
+    document.getElementById('rule-search').addEventListener('input', filterRules);
+    document.getElementById('rule-filter').addEventListener('change', filterRules);
   </script>
 {% endblock %}

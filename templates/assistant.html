@@ -1,10 +1,10 @@
 {% extends "layout.html" %}
 
 {% block content %}
-  <h2>AI-помощник по инструкции</h2>
-  <p class="meta">
-    Пользователь работает только с текстовой инструкцией. JSON-правило скрыто: система пересобирает его автоматически после каждого изменения инструкции.
-  </p>
+  <div class="page-header"><div><div class="eyebrow">Новый формат отчёта</div><h1>AI-помощник</h1><p class="lead">Система анализирует структуру Excel, помогает уточнить правило и показывает результат до сохранения.</p></div></div>
+  <div class="stepper" aria-label="Этапы обработки">
+    <div class="step active">1. Файл</div><div class="step {% if result %}active{% endif %}">2. Анализ</div><div class="step {% if result %}active{% endif %}">3. Инструкция</div><div class="step {% if result %}active{% endif %}">4. Правило</div><div class="step {% if target_preview %}active{% endif %}">5. Предпросмотр</div><div class="step">6. Шаблон</div><div class="step">7. Экспорт</div>
+  </div>
 
   <form method="post" enctype="multipart/form-data" class="panel">
     <h3><span class="step-badge">Шаг 1</span>Загрузить файл и описать задачу</h3>
@@ -30,10 +30,21 @@
       <p class="meta">
         Не нужно писать JSON. Если система неверно определила структуру, укажите это прямо в инструкции: например, «заголовки находятся на одной строке, на строке 4», «данные начинаются со строки 5», «не преобразовывать в длинный формат».
       </p>
+      <div class="button-row" aria-label="Примеры инструкций">
+        <button type="button" class="secondary prompt-example">Заголовки на строке 4, данные со строки 5</button>
+        <button type="button" class="secondary prompt-example">Удалить строки Итого и Всего</button>
+        <button type="button" class="secondary prompt-example">Месяцы перенести в колонку Период</button>
+        <button type="button" class="secondary prompt-example">Первые 3 столбца оставить идентификаторами</button>
+        <button type="button" class="secondary prompt-example">Заполнить пустые значения из объединённых ячеек</button>
+      </div>
     </div>
 
     <button type="submit">Проанализировать файл и показать предпросмотр</button>
   </form>
+
+  {% if not result %}
+    <div class="empty-state"><strong>Анализ ещё не запускался</strong><p>Загрузите Excel и опишите ожидаемый результат. Техническое правило будет сформировано автоматически и не отправится во внешние сервисы.</p></div>
+  {% endif %}
 
   {% if result %}
     {% set analysis = result.analysis %}
@@ -325,5 +336,10 @@
       const files = input.files;
       span.textContent = files && files[0] ? files[0].name : 'Файл не выбран';
     }
+    document.querySelectorAll('.prompt-example').forEach(button => button.addEventListener('click', () => {
+      const textarea = document.getElementById('raw_prompt');
+      textarea.value = [textarea.value.trim(), button.textContent.trim()].filter(Boolean).join('. ');
+      textarea.focus();
+    }));
   </script>
 {% endblock %}

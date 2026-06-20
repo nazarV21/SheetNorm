@@ -3,7 +3,10 @@ Flask-Cors
 python-dotenv
 pandas
 openpyxl
+xlrd
 pyarrow
 pydantic
 requests
 python-docx
+gunicorn
+pytest

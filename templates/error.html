@@ -1,0 +1,11 @@
+{% extends "layout.html" %}
+{% block title %}{{ title }} — SheetNorm{% endblock %}
+{% block content %}
+  <div class="panel">
+    <div class="eyebrow">Обработка остановлена</div>
+    <h1>{{ title }}</h1>
+    <p>{{ details }}</p>
+    <div class="warning-box"><strong>Что сделать:</strong> {{ suggestion }}</div>
+    <a class="action-link" href="{{ url_for('web.index') }}">Вернуться к загрузке</a>
+  </div>
+{% endblock %}

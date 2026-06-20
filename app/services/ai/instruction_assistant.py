@@ -90,9 +90,9 @@ class InstructionAssistant:
         if not improved:
             improved = self._fallback_improve(analysis, user_text, first_intent, learning_examples)
 
-        # После улучшения текста ещё раз определяем намерение: если пользователь
-        # уточнил инструкцию, правило должно измениться автоматически.
-        final_intent = self._detect_user_intent(f"{user_text} {improved}", analysis)
+        # Report actions must come from the current user text, not from learned hints
+        # or the improved instruction, otherwise filters/totals leak into similar files.
+        final_intent = first_intent
         how_understood = self._build_understanding(analysis, improved or user_text, final_intent)
 
         rule = dict(analysis.get("proposed_rule") or {})
@@ -183,18 +183,13 @@ class InstructionAssistant:
         learning_examples = learning_examples or []
         if learning_examples:
             last = learning_examples[0]
-            corrected_instruction = (
-                last.get("user_corrected_instruction")
-                or last.get("user_instruction")
-                or last.get("regenerated_instruction")
-                or ""
-            ).strip()
+            learned_structure = self._build_structural_learning_note(last)
             changed_terms = last.get("changed_terms") or []
             preview_columns = last.get("preview_columns") or last.get("corrected_columns") or []
-            if corrected_instruction:
+            if learned_structure:
                 parts.append(
-                    "С учётом прошлой правки для похожей таблицы не повторять прежнюю ошибку и учесть: "
-                    + corrected_instruction
+                    "С учётом прошлой правки для похожей таблицы не повторять прежнюю ошибку и учесть только структуру обработки: "
+                    + learned_structure
                 )
             if changed_terms:
                 parts.append(
@@ -220,22 +215,24 @@ class InstructionAssistant:
         ).lower()
         combined = f"{text} {all_headers}"
 
-        branch_requested = any(word in combined for word in self.BRANCH_WORDS)
+        branch_requested = any(word in text for word in self.BRANCH_WORDS)
+        branch_available = branch_requested or any(word in all_headers for word in self.BRANCH_WORDS)
         totals_requested = any(word in text for word in self.TOTAL_WORDS)
         filter_requested = any(word in text for word in self.FILTER_WORDS)
+        summary_requested = any(word in text for word in ("лист", "отдельн", "свод", "summary", "sheet"))
         sales_context = any(word in combined for word in self.SALES_WORDS)
         date_context = any(word in combined for word in self.DATE_WORDS)
         location_context = any(word in combined for word in self.WHERE_WORDS)
 
         likely_filter_columns = self._find_likely_columns(analysis, self.BRANCH_WORDS)
-        if branch_requested and not likely_filter_columns:
+        if branch_available and not likely_filter_columns:
             likely_filter_columns = ["Филиал"]
 
         return {
-            "needs_branch_filter": bool(branch_requested and (filter_requested or totals_requested or sales_context)),
-            "needs_auto_filter": bool(filter_requested or branch_requested),
+            "needs_branch_filter": bool(branch_requested and filter_requested),
+            "needs_auto_filter": bool(filter_requested),
             "needs_totals": bool(totals_requested),
-            "needs_summary_by_branch": bool(branch_requested and totals_requested),
+            "needs_summary_by_branch": bool(totals_requested and summary_requested),
             "sales_context": bool(sales_context),
             "date_context": bool(date_context),
             "location_context": bool(location_context),
@@ -352,17 +349,28 @@ class InstructionAssistant:
             return ""
         parts: list[str] = []
         for item in strong[:2]:
-            corrected = (
-                item.get("user_corrected_instruction")
-                or item.get("user_instruction")
-                or item.get("regenerated_instruction")
-                or ""
-            ).strip()
-            if corrected:
-                parts.append(corrected)
+            learned_structure = self._build_structural_learning_note(item)
+            if learned_structure:
+                parts.append(learned_structure)
         if not parts:
             return ""
-        return "Учитывая прошлые исправления для похожих файлов: " + " ".join(parts)
+        return "Учитывая прошлые исправления для похожих файлов, применить только структурные подсказки: " + " ".join(parts)
+
+    def _build_structural_learning_note(self, item: dict[str, Any]) -> str:
+        rule = item.get("generated_rule") or {}
+        pieces: list[str] = []
+        if rule.get("header_rows"):
+            pieces.append(f"строки заголовков {self._human_rows(rule.get('header_rows') or [])}")
+        if rule.get("data_start_row") is not None:
+            pieces.append(f"данные начинаются со строки {int(rule.get('data_start_row')) + 1}")
+        if rule.get("table_type"):
+            pieces.append(f"тип таблицы {rule.get('table_type')}")
+        melt = rule.get("melt") or {}
+        if melt.get("enabled"):
+            pieces.append("нужно преобразование из широкого формата в строки")
+        elif rule:
+            pieces.append("без дополнительного разворота, если текущий запрос этого не просит")
+        return "; ".join(pieces)
 
     @staticmethod
     def _compact_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
