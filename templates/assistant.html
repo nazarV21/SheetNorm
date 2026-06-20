@@ -49,6 +49,7 @@
   {% if result %}
     {% set analysis = result.analysis %}
     {% set preview = analysis.preview_context %}
+    {% if result.engine == 'fallback' %}<div class="hint-box"><strong>Работа без LLM:</strong><p>Локальная модель недоступна или отключена. Система использует детерминированный анализ структуры и сохранённые шаблоны. Код состояния: <code>LLM_UNAVAILABLE_FALLBACK_USED</code>.</p></div>{% endif %}
     <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;">
 
     <h3><span class="step-badge">Шаг 2</span>Предпросмотр исходного файла</h3>

@@ -11,9 +11,11 @@
     </form>
   </div>
 
-  <div class="filter-bar">
+  <div class="grid-4" style="margin:14px 0;">
     <input type="search" id="rule-search" placeholder="Поиск по шаблонам" aria-label="Поиск по шаблонам">
+    <select id="type-filter" aria-label="Фильтр по типу"><option value="">Все типы</option>{% for type in rules|map(attribute='table_type')|unique|sort %}<option value="{{ type }}">{{ type }}</option>{% endfor %}</select>
     <select id="category-filter" aria-label="Фильтр по категории"><option value="">Все категории</option>{% for category in rules|map(attribute='category')|unique|sort %}<option value="{{ category }}">{{ category }}</option>{% endfor %}</select>
+    <select id="domain-filter" aria-label="Фильтр по домену"><option value="">Все домены</option>{% for domain in rules|map(attribute='domain')|unique|sort %}<option value="{{ domain }}">{{ domain }}</option>{% endfor %}</select>
   </div>
 
   {% if not rules %}
@@ -21,11 +23,12 @@
   {% else %}
     <div class="rule-list" id="rules-list">
       {% for rule in rules %}
-        <article class="rule-card" data-search="{{ (rule.name ~ ' ' ~ rule.description ~ ' ' ~ rule.domain ~ ' ' ~ rule.tags|join(' '))|lower }}" data-category="{{ rule.category }}">
+        <article class="rule-card" data-search="{{ (rule.name ~ ' ' ~ rule.description ~ ' ' ~ rule.domain ~ ' ' ~ rule.tags|join(' '))|lower }}" data-category="{{ rule.category }}" data-type="{{ rule.table_type }}" data-domain="{{ rule.domain }}">
           <div class="rule-card-head">
             <div><h3>{{ rule.name }}</h3><p class="meta">{{ rule.description or 'Описание не добавлено.' }}</p></div>
             <div class="button-row">
-              <a class="small-btn secondary" href="{{ url_for('web.edit_rule', rule_id=rule.id) }}">Открыть</a>
+              <a class="small-btn secondary" href="{{ url_for('web.rule_detail', rule_id=rule.id) }}">Открыть</a>
+              <a class="small-btn secondary" href="{{ url_for('web.edit_rule', rule_id=rule.id) }}">Редактировать</a>
               <a class="small-btn" href="{{ url_for('web.index', rule_id=rule.id) }}">Протестировать</a>
               <form method="post" action="{{ url_for('web.duplicate_rule', rule_id=rule.id) }}"><button type="submit" class="secondary">Копия</button></form>
               <form method="post" action="{{ url_for('web.delete_rule', rule_id=rule.id) }}"><button type="submit" class="danger-btn" onclick="return confirm('Удалить шаблон {{ rule.name }}?');">Удалить</button></form>
@@ -51,15 +54,17 @@
   {% endif %}
   <script>
     const search = document.getElementById('rule-search');
+    const type = document.getElementById('type-filter');
     const category = document.getElementById('category-filter');
+    const domain = document.getElementById('domain-filter');
     function filterRules() {
       let visible = 0;
       document.querySelectorAll('#rules-list .rule-card').forEach(card => {
-        const show = (!search.value.trim() || card.dataset.search.includes(search.value.toLowerCase().trim())) && (!category.value || card.dataset.category === category.value);
+        const show = (!search.value.trim() || card.dataset.search.includes(search.value.toLowerCase().trim())) && (!type.value || card.dataset.type === type.value) && (!category.value || card.dataset.category === category.value) && (!domain.value || card.dataset.domain === domain.value);
         card.hidden = !show; if (show) visible += 1;
       });
       const empty = document.getElementById('rules-empty'); if (empty) empty.hidden = visible > 0;
     }
-    search.addEventListener('input', filterRules); category.addEventListener('change', filterRules);
+    search.addEventListener('input', filterRules); type.addEventListener('change', filterRules); category.addEventListener('change', filterRules); domain.addEventListener('change', filterRules);
   </script>
 {% endblock %}

@@ -26,6 +26,7 @@ from app.services.table_structure_analyzer import TableStructureAnalyzer
 from app.utils.rules_store import RulesStore
 from app.utils.training_examples_store import TrainingExamplesStore
 from app.utils.feedback_store import FeedbackStore
+from app.utils.jobs_repository import JobsRepository
 from app.utils.uploads import is_excel_filename, sanitize_upload_name, save_excel_upload
 
 
@@ -39,7 +40,13 @@ def _is_excel_filename(name: str) -> bool:
 
 
 def _save_uploaded_file(file) -> tuple[str, str, Path]:
-    return save_excel_upload(file, current_app.config["INPUT_DIR"])
+    job_id, original_filename, target_path = save_excel_upload(file, current_app.config["INPUT_DIR"])
+    JobsRepository().create(
+        job_id,
+        input_filename=original_filename,
+        input_path=target_path,
+    )
+    return job_id, original_filename, target_path
 
 
 def _parse_json_field(value: str | None, default: Any = None) -> Any:
@@ -73,6 +80,7 @@ def _strip_request_only_report_config(generated_rule: dict[str, Any]) -> dict[st
 @web_bp.get("/")
 def dashboard():
     rules = RulesStore().list_rules()
+    processing_jobs = JobsRepository().list()
     history_path = Path(current_app.config["HISTORY_FILE"])
     try:
         history_items = json.loads(history_path.read_text(encoding="utf-8"))
@@ -82,7 +90,7 @@ def dashboard():
     return render_template(
         "dashboard.html",
         rules_count=len(rules),
-        conversions_count=len(history_items),
+        conversions_count=len(processing_jobs) or len(history_items),
         training_stats=training_stats,
         ai_backend=current_app.config.get("AI_BACKEND", "fallback"),
     )
@@ -181,6 +189,67 @@ def index():
 @web_bp.get("/about")
 def about():
     return render_template("about.html")
+
+
+@web_bp.get("/deployment")
+def deployment():
+    return render_template("deployment.html")
+
+
+@web_bp.get("/jobs")
+def jobs_list():
+    selected_status = request.args.get("status", "").strip()
+    query = request.args.get("q", "").strip().lower()
+    jobs = JobsRepository().list(status=selected_status or None)
+    if query:
+        jobs = [
+            job for job in jobs
+            if query in str(job.get("input_filename") or "").lower()
+            or query in str(job.get("rule_name") or "").lower()
+            or query in str(job.get("job_id") or "").lower()
+        ]
+    return render_template(
+        "jobs.html",
+        jobs=jobs,
+        selected_status=selected_status,
+        query=request.args.get("q", ""),
+    )
+
+
+@web_bp.get("/jobs/<job_id>")
+def job_detail(job_id: str):
+    job = JobsRepository().get(job_id)
+    if not job:
+        return render_template(
+            "error.html",
+            title="Задача не найдена",
+            details=f"Задача {job_id} отсутствует или была удалена.",
+            suggestion="Вернитесь к списку задач или загрузите файл повторно.",
+        ), 404
+
+    preview = None
+    preview_error = None
+    output_filename = job.get("output_filename")
+    output_path_value = job.get("output_path")
+    if output_path_value:
+        output_dir = Path(current_app.config["OUTPUT_DIR"]).resolve()
+        output_path = Path(output_path_value).resolve()
+        if output_path.parent == output_dir and output_path.exists():
+            try:
+                preview_df = pd.read_excel(output_path, sheet_name="Результат", nrows=30)
+                preview = ConversionService.dataframe_to_preview(preview_df, max_rows=30)
+            except Exception as exc:
+                preview_error = f"Предпросмотр результата недоступен: {exc}"
+        else:
+            preview_error = "Файл результата отсутствует в каталоге output."
+    return render_template(
+        "job_detail.html",
+        job=job,
+        quality_report=job.get("quality_report") or {},
+        preview=preview,
+        preview_error=preview_error,
+        output_filename=output_filename,
+    )
 
 
 @web_bp.get("/download/<path:filename>")
@@ -603,6 +672,38 @@ def rules_list():
     return render_template("rules.html", rules=rules)
 
 
+@web_bp.get("/rules/<rule_id>")
+def rule_detail(rule_id: str):
+    rule = RulesStore().get_rule(rule_id)
+    if not rule:
+        return render_template(
+            "error.html",
+            title="Шаблон не найден",
+            details="Запрошенный шаблон отсутствует в библиотеке.",
+            suggestion="Вернитесь к библиотеке или создайте новый шаблон.",
+        ), 404
+    return render_template(
+        "rule_detail.html",
+        rule=rule,
+        generated_rule_json=json.dumps(rule.get("generated_rule") or {}, ensure_ascii=False, indent=2),
+    )
+
+
+@web_bp.get("/rules/<rule_id>/export")
+def export_rule(rule_id: str):
+    rule = RulesStore().get_rule(rule_id)
+    if not rule:
+        flash("Шаблон для экспорта не найден.", "error")
+        return redirect(url_for("web.rules_list"))
+    payload = json.dumps(rule, ensure_ascii=False, indent=2).encode("utf-8")
+    return send_file(
+        BytesIO(payload),
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=f"sheetnorm_rule_{rule_id}.json",
+    )
+
+
 @web_bp.post("/rules/<rule_id>/duplicate")
 def duplicate_rule(rule_id: str):
     rule = RulesStore().duplicate_rule(rule_id)
@@ -632,8 +733,10 @@ def import_rules():
         return redirect(url_for("web.rules_list"))
     try:
         payload = json.load(incoming.stream)
+        if isinstance(payload, dict):
+            payload = [payload]
         if not isinstance(payload, list):
-            raise ValueError("корневой элемент должен быть массивом")
+            raise ValueError("корневой элемент должен быть объектом или массивом")
         store = RulesStore()
         added = 0
         for item in payload:

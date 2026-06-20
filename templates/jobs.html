@@ -1,0 +1,37 @@
+{% extends "layout.html" %}
+{% block title %}Задачи обработки — SheetNorm{% endblock %}
+{% block content %}
+  <div class="page-header"><div><div class="eyebrow">ProcessingJob</div><h1>Задачи обработки</h1><p class="lead">Текущие и завершённые операции с файлами. История остаётся legacy-журналом, а задачи содержат полный технический результат.</p></div></div>
+
+  <form method="get" class="filter-bar">
+    <input type="search" name="q" value="{{ query }}" placeholder="Файл, шаблон или job_id" aria-label="Поиск задач">
+    <select name="status" aria-label="Фильтр статуса" onchange="this.form.submit()">
+      <option value="">Все статусы</option>
+      {% for status in ['created', 'queued', 'processing', 'success', 'failed', 'cancelled'] %}<option value="{{ status }}" {% if selected_status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}
+    </select>
+  </form>
+
+  {% if not jobs %}
+    <div class="empty-state"><strong>Задачи не найдены</strong><p>Загрузите Excel на странице конвертации или измените фильтр.</p><a class="action-link" href="{{ url_for('web.index') }}">Создать задачу</a></div>
+  {% else %}
+    <div class="history-table-wrapper">
+      <table class="history-table">
+        <thead><tr><th>Создана</th><th>Статус</th><th>Исходный файл</th><th>Шаблон</th><th>Строк</th><th>Время</th><th>Результат</th><th></th></tr></thead>
+        <tbody>
+          {% for job in jobs %}
+            <tr>
+              <td>{{ job.created_at or '—' }}</td>
+              <td><span class="status status-{{ job.status }}">{{ job.status }}</span></td>
+              <td title="{{ job.input_filename }}">{{ job.input_filename or '—' }}</td>
+              <td>{{ job.rule_name or 'Без шаблона' }}</td>
+              <td>{{ job.rows_output if job.rows_output is not none else '—' }}</td>
+              <td>{{ '%.3f'|format(job.duration_seconds) ~ ' c' if job.duration_seconds is not none else '—' }}</td>
+              <td>{% if job.output_filename %}<a href="{{ url_for('web.download', filename=job.output_filename) }}">Скачать</a>{% else %}—{% endif %}</td>
+              <td><a href="{{ url_for('web.job_detail', job_id=job.job_id) }}">Отчёт</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endblock %}

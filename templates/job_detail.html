@@ -1,0 +1,37 @@
+{% extends "layout.html" %}
+{% block title %}Задача {{ job.job_id }} — SheetNorm{% endblock %}
+{% block content %}
+  <div class="page-header"><div><div class="eyebrow">Подробный отчёт</div><h1>{{ job.input_filename or job.job_id }}</h1><p class="meta">Job ID: <code>{{ job.job_id }}</code></p></div><span class="status status-{{ job.status }}">{{ job.status }}</span></div>
+
+  {% if job.status == 'failed' %}<div class="warning-box"><strong>Обработка завершилась ошибкой.</strong> Проверьте описание ниже, затем загрузите другой файл, выберите другой шаблон или уточните инструкцию.</div>{% endif %}
+
+  <div class="stats-grid">
+    <div><strong>Создана</strong><br><span class="meta">{{ job.created_at or '—' }}</span></div>
+    <div><strong>Шаблон</strong><br><span class="meta">{{ job.rule_name or 'Без шаблона' }}</span></div>
+    <div><strong>Длительность</strong><br>{{ '%.3f'|format(job.duration_seconds) ~ ' c' if job.duration_seconds is not none else '—' }}</div>
+    <div><strong>Тип таблицы</strong><br>{{ job.detected_table_type or '—' }}</div>
+  </div>
+
+  <section class="section-band">
+    <h2>Отчёт качества</h2>
+    <div class="quality-grid" style="margin-top:14px;">
+      <div class="metric"><strong>Строки</strong><br>{{ quality_report.rows_input if quality_report.rows_input is not none else '—' }} → {{ quality_report.rows_output if quality_report.rows_output is not none else '—' }}</div>
+      <div class="metric"><strong>Колонки</strong><br>{{ quality_report.columns_input if quality_report.columns_input is not none else '—' }} → {{ quality_report.columns_output if quality_report.columns_output is not none else '—' }}</div>
+      <div class="metric"><strong>Пустые ячейки</strong><br>{{ quality_report.empty_cells_before if quality_report.empty_cells_before is not none else '—' }} → {{ quality_report.empty_cells_after if quality_report.empty_cells_after is not none else '—' }}</div>
+      <div class="metric"><strong>Статус качества</strong><br><span class="badge {% if quality_report.quality_status == 'success' %}ok{% else %}warn{% endif %}">{{ quality_report.quality_status or '—' }}</span></div>
+    </div>
+  </section>
+
+  <div class="grid-2">
+    <section class="panel"><h3>Применённые операции</h3>{% if job.applied_operations %}<ul>{% for item in job.applied_operations %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}<p class="meta">Операции не зафиксированы.</p>{% endif %}</section>
+    <section class="panel"><h3>Предупреждения</h3>{% if job.warnings %}<ul>{% for item in job.warnings %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}<p class="meta">Предупреждений нет.</p>{% endif %}</section>
+  </div>
+
+  {% if job.errors %}<section class="panel"><h3>Ошибки</h3><div class="diagnostics-list">{% for item in job.errors %}<div class="diagnostic-item error"><strong>{% if item is mapping %}{{ item.code }}{% else %}CONVERSION_FAILED{% endif %}</strong><p>{% if item is mapping %}{{ item.error }}{% else %}{{ item }}{% endif %}</p>{% if item is mapping and item.details %}<p class="meta">{{ item.details }}</p>{% endif %}</div>{% endfor %}</div></section>{% endif %}
+
+  {% if preview %}
+    <section class="section-band"><h2>Предпросмотр результата</h2><p class="meta">Первые {{ preview.shown_rows }} строк.</p><div class="preview-table-wrapper"><table class="preview-table"><thead><tr>{% for col in preview.columns %}<th>{{ col }}</th>{% endfor %}</tr></thead><tbody>{% for row in preview.rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></section>
+  {% elif preview_error %}<div class="warning-box">{{ preview_error }}</div>{% endif %}
+
+  <div class="button-row">{% if output_filename %}<a class="action-link" href="{{ url_for('web.download', filename=output_filename) }}">Скачать результат</a>{% endif %}<a class="action-link secondary" href="{{ url_for('web.jobs_list') }}">К списку задач</a><a class="action-link secondary" href="{{ url_for('web.index') }}">Загрузить другой файл</a></div>
+{% endblock %}

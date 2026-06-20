@@ -6,6 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent
 INPUT_DIR = BASE_DIR / "input"
 OUTPUT_DIR = BASE_DIR / "output"
 HISTORY_FILE = BASE_DIR / "history.json"
+JOBS_FILE = BASE_DIR / "jobs.json"
 RULES_FILE = BASE_DIR / "rules.json"
 TRAINING_EXAMPLES_FILE = BASE_DIR / "training_examples.json"
 TRAINING_EXAMPLES_DIR = BASE_DIR / "training_examples"
@@ -17,6 +18,7 @@ class Config:
     INPUT_DIR = INPUT_DIR
     OUTPUT_DIR = OUTPUT_DIR
     HISTORY_FILE = HISTORY_FILE
+    JOBS_FILE = Path(os.getenv("JOBS_FILE", str(JOBS_FILE)))
     RULES_FILE = RULES_FILE
     TRAINING_EXAMPLES_FILE = TRAINING_EXAMPLES_FILE
     TRAINING_EXAMPLES_DIR = TRAINING_EXAMPLES_DIR

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from openpyxl import Workbook
 
-from app.services.conversion_service import ConversionService
+from app.services.conversion_service import ConversionService, ConversionValidationError
 from app.services.table_structure_analyzer import TableStructureAnalyzer
 
 
@@ -42,3 +43,13 @@ def test_cross_table_is_converted_to_long_format(app, tmp_path: Path):
         result = ConversionService()._apply_generated_rule(source, rule)
     assert list(result.columns) == ["Товар", "Период", "Значение"]
     assert len(result) == 4
+
+
+def test_missing_sheet_has_structured_error_code(app, tmp_path: Path):
+    source = tmp_path / "sheet.xlsx"
+    make_workbook(source, [["Код"], ["A"]])
+    with app.app_context():
+        service = ConversionService()
+        with pytest.raises(ConversionValidationError) as caught:
+            service._read_raw(source, "Несуществующий лист")
+        assert service._validation_error_code(caught.value) == "SHEET_NOT_FOUND"

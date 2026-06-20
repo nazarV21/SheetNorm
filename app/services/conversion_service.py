@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 import json
 from datetime import datetime
+from time import perf_counter
 
 import pandas as pd
 from flask import current_app
@@ -17,6 +18,7 @@ from app.utils.file_manager import FileManager
 from app.utils.rules_store import RulesStore
 from app.utils.training_examples_store import TrainingExamplesStore
 from app.utils.cross_table_converter import convert_cross_table_to_flat
+from app.utils.jobs_repository import JobsRepository
 
 
 class ConversionValidationError(Exception):
@@ -44,6 +46,54 @@ class ConversionService:
         )
         self.ai_client = AIClient()
         self.smart_converter = SmartConverter()
+        self.jobs = JobsRepository()
+        self._job_started_at: dict[str, float] = {}
+
+    def _begin_job(
+        self,
+        job_id: str,
+        source_path: Path,
+        rule: dict[str, Any] | None,
+        instruction: str | None = None,
+    ) -> None:
+        if not self.jobs.get(job_id):
+            self.jobs.create(
+                job_id,
+                input_filename=self.file_manager.get_original_filename(job_id),
+                input_path=source_path,
+            )
+        self._job_started_at[job_id] = perf_counter()
+        self.jobs.update_status(
+            job_id,
+            "processing",
+            rule_id=(rule or {}).get("id"),
+            rule_name=(rule or {}).get("name"),
+            original_instruction=instruction,
+            improved_instruction=(rule or {}).get("ai_improved_instruction") or instruction,
+        )
+
+    def _fail_job(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        code: str = "CONVERSION_FAILED",
+        details: str | None = None,
+    ) -> None:
+        self.jobs.append_error(job_id, error, code=code, details=details)
+
+    @staticmethod
+    def _validation_error_code(exc: ConversionValidationError) -> str:
+        text = " ".join(
+            [exc.message]
+            + [str(item.get("message") or "") for item in exc.diagnostics]
+            + [str(item.get("stage") or "") for item in exc.diagnostics]
+        ).lower()
+        if "лист" in text or "worksheet" in text or "sheet" in text:
+            return "SHEET_NOT_FOUND"
+        if "заголов" in text or "header" in text:
+            return "HEADER_NOT_DETECTED"
+        return "INVALID_RULE"
 
     def analyze(self, job_id: str) -> dict[str, Any]:
         try:
@@ -56,21 +106,27 @@ class ConversionService:
     def convert_with_rule(self, job_id: str, rule_id: str | None, options: dict[str, Any]) -> dict[str, Any]:
         source_path = self.file_manager.resolve_input(job_id)
         if not source_path.exists():
+            self._fail_job(job_id, "Входной файл задачи не найден.", code="JOB_NOT_FOUND")
             return {"error": "Файл не найден", "job_id": job_id}
 
         rule = None
         if rule_id:
             rule = RulesStore().get_rule(rule_id)
             if not rule:
+                self._fail_job(job_id, "Выбранный шаблон не найден.", code="INVALID_RULE")
                 return {"error": "Выбранное правило не найдено", "job_id": job_id}
 
+        self._begin_job(job_id, source_path, rule)
         try:
             result_df = self._convert_path(source_path=source_path, rule=rule, options=options)
         except ConversionValidationError as exc:
-            return {"error": exc.message, "details": "Не удалось применить выбранный шаблон.", "suggestion": "Проверьте структуру файла или создайте новый шаблон через AI-помощник.", "code": "RULE_APPLICATION_FAILED", "diagnostics": exc.diagnostics}
+            code = self._validation_error_code(exc)
+            self._fail_job(job_id, exc.message, code=code, details="Не удалось применить выбранный шаблон.")
+            return {"error": exc.message, "details": "Не удалось применить выбранный шаблон.", "suggestion": "Проверьте структуру файла или создайте новый шаблон через AI-помощник.", "code": code, "diagnostics": exc.diagnostics}
         except Exception as exc:
             current_app.logger.exception("Rule conversion failed")
-            return {"error": "Файл не удалось обработать", "details": str(exc), "suggestion": "Проверьте, что Excel-файл не повреждён и соответствует выбранному шаблону.", "code": "EXCEL_PROCESSING_FAILED"}
+            self._fail_job(job_id, "Файл не удалось обработать", details=str(exc))
+            return {"error": "Файл не удалось обработать", "details": str(exc), "suggestion": "Проверьте, что Excel-файл не повреждён и соответствует выбранному шаблону.", "code": "CONVERSION_FAILED"}
         return self._finish(job_id, source_path, result_df, rule)
 
     def _build_instruction_rule(
@@ -99,15 +155,20 @@ class ConversionService:
         """Конвертация по разовой инструкции без обязательного сохранения правила."""
         source_path = self.file_manager.resolve_input(job_id)
         if not source_path.exists():
+            self._fail_job(job_id, "Входной файл задачи не найден.", code="JOB_NOT_FOUND")
             return {"error": "Файл не найден", "job_id": job_id}
         rule = self._build_instruction_rule(instruction, generated_rule, name="Разовая инструкция")
+        self._begin_job(job_id, source_path, rule, instruction)
         try:
             result_df = self._convert_path(source_path=source_path, rule=rule, options=options or {})
         except ConversionValidationError as exc:
-            return {"error": exc.message, "details": "Инструкция не применилась к структуре файла.", "suggestion": "Уточните строки заголовков, начало данных и требуемые колонки.", "code": "INSTRUCTION_FAILED", "diagnostics": exc.diagnostics}
+            code = self._validation_error_code(exc)
+            self._fail_job(job_id, exc.message, code=code, details="Инструкция не применилась к структуре файла.")
+            return {"error": exc.message, "details": "Инструкция не применилась к структуре файла.", "suggestion": "Уточните строки заголовков, начало данных и требуемые колонки.", "code": code, "diagnostics": exc.diagnostics}
         except Exception as exc:
             current_app.logger.exception("Instruction conversion failed")
-            return {"error": "Файл не удалось обработать", "details": str(exc), "suggestion": "Проверьте файл и уточните инструкцию.", "code": "EXCEL_PROCESSING_FAILED"}
+            self._fail_job(job_id, "Файл не удалось обработать", details=str(exc))
+            return {"error": "Файл не удалось обработать", "details": str(exc), "suggestion": "Проверьте файл и уточните инструкцию.", "code": "CONVERSION_FAILED"}
         return self._finish(job_id, source_path, result_df, rule)
 
     def convert_with_instruction_checked(
@@ -125,8 +186,10 @@ class ConversionService:
         """
         source_path = self.file_manager.resolve_input(job_id)
         if not source_path.exists():
+            self._fail_job(job_id, "Входной файл задачи не найден.", code="JOB_NOT_FOUND")
             return {"error": "Файл не найден", "job_id": job_id, "diagnostics": []}
         rule = self._build_instruction_rule(instruction, generated_rule, name="Разовая инструкция")
+        self._begin_job(job_id, source_path, rule, instruction)
         try:
             result_df, diagnostics = self._convert_path_with_diagnostics(
                 source_path=source_path,
@@ -135,9 +198,12 @@ class ConversionService:
                 strict=True,
             )
         except ConversionValidationError as exc:
-            return {"error": exc.message, "job_id": job_id, "diagnostics": exc.diagnostics}
+            code = self._validation_error_code(exc)
+            self._fail_job(job_id, exc.message, code=code)
+            return {"error": exc.message, "job_id": job_id, "code": code, "diagnostics": exc.diagnostics}
         except Exception as exc:
             current_app.logger.exception("Checked conversion failed")
+            self._fail_job(job_id, "Файл не удалось обработать", details=str(exc))
             return {"error": "Файл не удалось обработать", "job_id": job_id, "diagnostics": [{"severity": "error", "stage": "excel", "message": str(exc), "hint": "Проверьте целостность файла и выбранный лист."}]}
         result = self._finish(job_id, source_path, result_df, rule, diagnostics=diagnostics)
         result["diagnostics"] = diagnostics
@@ -191,7 +257,9 @@ class ConversionService:
         """Сохранить пользовательски исправленную итоговую таблицу как Excel."""
         source_path = self.file_manager.resolve_input(job_id)
         if not source_path.exists():
+            self._fail_job(job_id, "Входной файл задачи не найден.", code="JOB_NOT_FOUND")
             return {"error": "Файл не найден", "job_id": job_id}
+        self._begin_job(job_id, source_path, rule)
         return self._finish(job_id, source_path, df, rule)
 
     @staticmethod
@@ -236,13 +304,16 @@ class ConversionService:
     def convert(self, job_id: str, schema: dict | None, options: dict[str, Any]) -> dict[str, Any]:
         source_path = self.file_manager.resolve_input(job_id)
         if not source_path.exists():
+            self._fail_job(job_id, "Входной файл задачи не найден.", code="JOB_NOT_FOUND")
             return {"error": "Файл не найден", "job_id": job_id}
+        self._begin_job(job_id, source_path, None)
         try:
             df = pd.read_excel(source_path)
             if schema:
                 df = self._apply_schema(df, schema)
         except Exception as exc:
             current_app.logger.exception("Schema conversion failed")
+            self._fail_job(job_id, "Файл не удалось прочитать как Excel", details=str(exc))
             return {"error": "Файл не удалось прочитать как Excel", "details": str(exc), "suggestion": "Проверьте расширение и целостность файла.", "code": "INVALID_EXCEL_FILE"}
         return self._finish(job_id, source_path, df, None)
 
@@ -463,10 +534,21 @@ class ConversionService:
         return data
 
     def _read_raw(self, source_path: Path, sheet_name: str | int | None) -> pd.DataFrame:
+        selected_sheet = sheet_name if sheet_name not in (None, "") else 0
         try:
-            return pd.read_excel(source_path, sheet_name=sheet_name if sheet_name not in (None, "") else 0, header=None)
-        except Exception:
-            return pd.read_excel(source_path, sheet_name=0, header=None)
+            return pd.read_excel(source_path, sheet_name=selected_sheet, header=None)
+        except ValueError as exc:
+            if isinstance(selected_sheet, str):
+                raise ConversionValidationError(
+                    f"Лист '{selected_sheet}' не найден в Excel-файле.",
+                    [{
+                        "severity": "error",
+                        "stage": "sheet",
+                        "message": f"Не найден лист: {selected_sheet}.",
+                        "hint": "Проверьте название листа в шаблоне или выберите существующий лист.",
+                    }],
+                ) from exc
+            raise
 
     def _make_headers(self, raw_df: pd.DataFrame, header_rows: list[int], col_count: int) -> list[str]:
         headers: list[str] = []
@@ -730,15 +812,18 @@ class ConversionService:
         rule: dict[str, Any] | None,
         diagnostics: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        metric_warnings = [str(item.get("message")) for item in (diagnostics or []) if item.get("severity") == "warning"]
         try:
             source_df = pd.read_excel(source_path, sheet_name=0, header=None)
             rows_input, columns_input = source_df.shape
             empty_before = int(source_df.isna().sum().sum())
         except Exception:
-            rows_input, columns_input, empty_before = 0, 0, 0
+            rows_input, columns_input, empty_before = None, None, None
+            metric_warnings.append("Не удалось рассчитать метрики исходного файла.")
 
         diagnostics = diagnostics or []
-        warnings = [str(item.get("message")) for item in diagnostics if item.get("severity") in {"warning", "error"}]
+        warnings = metric_warnings
+        errors = [str(item.get("message")) for item in diagnostics if item.get("severity") == "error"]
         generated_rule = (rule or {}).get("generated_rule") or {}
         operations: list[str] = []
         if generated_rule.get("header_rows"):
@@ -749,16 +834,17 @@ class ConversionService:
             operations.append("Преобразование в длинный формат")
         operations.append("Удаление пустых строк и колонок")
 
-        quality_status = "warning" if warnings else "success"
+        quality_status = "error" if errors else ("warning" if warnings else "success")
         confidence = 0.75 if warnings else 0.92
         return {
-            "rows_input": int(rows_input),
+            "rows_input": int(rows_input) if rows_input is not None else None,
             "rows_output": int(len(df)),
-            "columns_input": int(columns_input),
+            "columns_input": int(columns_input) if columns_input is not None else None,
             "columns_output": int(len(df.columns)),
             "empty_cells_before": empty_before,
             "empty_cells_after": int(df.isna().sum().sum()),
             "warnings": warnings,
+            "errors": errors,
             "detected_table_type": generated_rule.get("table_type") or (rule or {}).get("table_type") or "flat",
             "applied_operations": operations,
             "confidence_score": confidence,
@@ -774,7 +860,18 @@ class ConversionService:
         diagnostics: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         quality_report = self._build_quality_report(source_path, df, rule, diagnostics)
-        output_path = self._save_dataframe(df, source_path, job_id, rule=rule, quality_report=quality_report)
+        try:
+            output_path = self._save_dataframe(df, source_path, job_id, rule=rule, quality_report=quality_report)
+        except Exception as exc:
+            current_app.logger.exception("Output save failed")
+            self._fail_job(job_id, "Не удалось сохранить результат.", code="OUTPUT_SAVE_FAILED", details=str(exc))
+            return {
+                "error": "Не удалось сохранить результат",
+                "details": str(exc),
+                "suggestion": "Проверьте права на запись и свободное место в каталоге output.",
+                "code": "OUTPUT_SAVE_FAILED",
+                "job_id": job_id,
+            }
         original_name = self.file_manager.get_original_filename(job_id)
         result = {
             "job_id": job_id,
@@ -788,6 +885,19 @@ class ConversionService:
             "rule_name": rule.get("name") if rule else None,
             "quality_report": quality_report,
         }
+        started_at = self._job_started_at.get(job_id)
+        duration_seconds = perf_counter() - started_at if started_at is not None else None
+        self.jobs.update_result(
+            job_id,
+            output_filename=Path(output_path).name,
+            output_path=output_path,
+            quality_report=quality_report,
+            duration_seconds=duration_seconds,
+            rule_id=(rule or {}).get("id"),
+            rule_name=(rule or {}).get("name"),
+            original_instruction=(rule or {}).get("raw_user_prompt") or (rule or {}).get("prompt"),
+            improved_instruction=(rule or {}).get("ai_improved_instruction") or (rule or {}).get("prompt"),
+        )
         self._append_history_entry(result)
         return result
 

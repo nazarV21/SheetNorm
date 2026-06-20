@@ -9,9 +9,11 @@ services:
       AI_MODEL_PATH: ${AI_MODEL_PATH:-models/qwen2.5-3b-instruct-q4_k_m.gguf}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-50}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://127.0.0.1:5000,http://localhost:5000}
+      JOBS_FILE: /app/data/jobs.json
     volumes:
       - ./input:/app/input
       - ./output:/app/output
       - ./models:/app/models
       - ./training_examples:/app/training_examples
+      - ./data:/app/data
     restart: unless-stopped

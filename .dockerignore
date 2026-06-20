@@ -8,6 +8,7 @@ __pycache__
 input
 output
 models
+data
 logs
 *.pyc
 *.pyo

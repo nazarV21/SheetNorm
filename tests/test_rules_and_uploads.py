@@ -7,6 +7,7 @@ from openpyxl import Workbook
 
 from app.utils.rules_store import RulesStore
 from app.utils.uploads import sanitize_upload_name
+from app.utils.file_manager import FileManager
 
 
 def workbook_bytes() -> io.BytesIO:
@@ -48,3 +49,23 @@ def test_rule_validation_is_soft_and_persisted(app):
         assert rule["id"]
         assert len(rule["validation_warnings"]) == 2
         assert RulesStore().get_rule(rule["id"])["name"] == "Тестовый шаблон"
+
+
+def test_rule_detail_and_individual_export(client, app):
+    with app.app_context():
+        rule = RulesStore().add_rule(name="Exportable", prompt="Read the first sheet")
+    detail = client.get(f"/rules/{rule['id']}")
+    assert detail.status_code == 200
+    assert "Exportable" in detail.get_data(as_text=True)
+    exported = client.get(f"/rules/{rule['id']}/export")
+    assert exported.status_code == 200
+    assert exported.mimetype == "application/json"
+
+
+def test_output_names_do_not_overwrite_existing_files(tmp_path: Path):
+    manager = FileManager(tmp_path / "input", tmp_path / "output")
+    first = manager.prepare_output("job-unique", ".xlsx")
+    first.touch()
+    second = manager.prepare_output("job-unique", ".xlsx")
+    assert second != first
+    assert second.stem.endswith("_2")

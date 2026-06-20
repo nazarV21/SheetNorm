@@ -19,9 +19,9 @@ ENV/
 *.swp
 *.swo
 
-# Models
-models/*.gguf
-models/*.bin
+# Models and runtime volumes
+models/
+data/
 
 # Logs
 logs/*.log
@@ -34,6 +34,7 @@ tables/input/*.xlsx
 tables/input/*.xls
 tables/output/*.xlsx
 history.json
+jobs.json
 
 # System
 Thumbs.db

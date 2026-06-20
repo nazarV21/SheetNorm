@@ -105,6 +105,12 @@
       .badge { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 8px; border-radius: 999px; background: #edf2f4; color: #40545f; font-size: 11px; font-weight: 700; }
       .badge.ok { background: #dff3e9; color: #12613f; }
       .badge.warn { background: #fff2cc; color: #765000; }
+      .status { display: inline-flex; align-items: center; min-height: 25px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+      .status-created, .status-queued { background: #edf2f4; color: #40545f; }
+      .status-processing { background: #e8f2ff; color: #175c9e; }
+      .status-success { background: #dff3e9; color: #12613f; }
+      .status-failed { background: #fff0ef; color: #8f1f16; }
+      .status-cancelled { background: #f1eafa; color: #6941a5; }
       .prompt-box, .understanding-card, .compare-card, .change-item { margin-top: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: #f8fafb; }
       .compare-card.improved { background: #eaf5f5; border-color: #a8d4d8; }
       .prompt-preview, .prompt-box p { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -207,7 +213,9 @@
           <li class="nav-item"><a href="{{ url_for('web.instruction_assistant') }}" class="{% if request.path.startswith('/assistant') %}active{% endif %}">AI-помощник</a></li>
           <li class="nav-item"><a href="{{ url_for('web.rules_list') }}" class="{% if request.path.startswith('/rules') %}active{% endif %}">Шаблоны</a></li>
           <li class="nav-item"><a href="{{ url_for('web.training') }}" class="{% if request.path.startswith('/training') %}active{% endif %}">Обучающие примеры</a></li>
+          <li class="nav-item"><a href="{{ url_for('web.jobs_list') }}" class="{% if request.path.startswith('/jobs') %}active{% endif %}">Задачи</a></li>
           <li class="nav-item"><a href="{{ url_for('web.history') }}" class="{% if request.path.startswith('/history') %}active{% endif %}">История</a></li>
+          <li class="nav-item"><a href="{{ url_for('web.deployment') }}" class="{% if request.path.startswith('/deployment') %}active{% endif %}">Внедрение</a></li>
           <li class="nav-item"><a href="{{ url_for('web.about') }}" class="{% if request.path.startswith('/about') %}active{% endif %}">О продукте</a></li>
           <li class="nav-divider" aria-hidden="true"></li>
           <li class="nav-item"><a href="{{ url_for('web.settings') }}" class="{% if request.path.startswith('/settings') %}active{% endif %}">Настройки</a></li>

@@ -9,6 +9,7 @@ from app.services.ai.instruction_assistant import InstructionAssistant
 from app.services.conversion_service import ConversionService
 from app.utils.rules_store import RulesStore
 from app.utils.training_examples_store import TrainingExamplesStore
+from app.utils.jobs_repository import JobsRepository
 from app.utils.uploads import is_excel_filename, sanitize_upload_name, save_excel_upload
 
 
@@ -46,6 +47,20 @@ def ping():
     return {"message": "pong"}
 
 
+@api_bp.get("/jobs/<job_id>")
+def get_job(job_id: str):
+    job = JobsRepository().get(job_id)
+    if not job:
+        return _api_error(
+            "Задача не найдена",
+            f"ProcessingJob {job_id} отсутствует.",
+            "Проверьте job_id или загрузите файл повторно.",
+            "JOB_NOT_FOUND",
+            404,
+        )
+    return jsonify(job), 200
+
+
 @api_bp.post("/uploads")
 def upload_file():
     if "file" not in request.files:
@@ -54,9 +69,10 @@ def upload_file():
     if incoming.filename == "":
         return _api_error("Файл не выбран", "Поле file не содержит имени файла.", "Выберите файл .xlsx или .xls.", "EMPTY_FILENAME", 400)
     if not _is_excel_filename(incoming.filename):
-        return _api_error("Неподдерживаемый формат", "Расширение файла не входит в список разрешённых.", "Загрузите файл .xlsx или .xls.", "INVALID_FILE_TYPE", 400)
+        return _api_error("Неподдерживаемый формат", "Расширение файла не входит в список разрешённых.", "Загрузите файл .xlsx или .xls.", "UNSUPPORTED_FILE_TYPE", 400)
 
     file_id, original_filename, target_path = save_excel_upload(incoming, current_app.config["INPUT_DIR"])
+    JobsRepository().create(file_id, input_filename=original_filename, input_path=target_path)
     return jsonify(
         {
             "job_id": file_id,
@@ -101,13 +117,20 @@ def analyze_with_assistant():
     if not incoming or incoming.filename == "":
         return _api_error("Файл не выбран", "Поле file отсутствует или пустое.", "Передайте Excel-файл в поле file.", "FILE_MISSING", 400)
     if not _is_excel_filename(incoming.filename):
-        return _api_error("Неподдерживаемый формат", "AI-помощник принимает только Excel-файлы.", "Загрузите файл .xlsx или .xls.", "INVALID_FILE_TYPE", 400)
+        return _api_error("Неподдерживаемый формат", "AI-помощник принимает только Excel-файлы.", "Загрузите файл .xlsx или .xls.", "UNSUPPORTED_FILE_TYPE", 400)
     raw_prompt = request.form.get("raw_prompt", "")
     sheet_name = request.form.get("sheet_name") or None
     with tempfile.TemporaryDirectory(prefix="assistant_api_") as tmp:
         path = Path(tmp) / _sanitize_filename(incoming.filename)
         incoming.save(path)
         result = InstructionAssistant().prepare_instruction(path, raw_prompt, sheet_name=sheet_name)
+        if result.get("engine") == "fallback":
+            result.setdefault("warnings", []).append(
+                {
+                    "code": "LLM_UNAVAILABLE_FALLBACK_USED",
+                    "message": "Локальная LLM недоступна или отключена. Использован детерминированный fallback.",
+                }
+            )
         similar_rules = RulesStore().find_similar_rules((result.get("analysis") or {}).get("fingerprint") or {})
         result["similar_rules"] = similar_rules
         return jsonify(result), 200
@@ -133,6 +156,9 @@ def create_rule():
         domain=payload.get("domain") or "universal",
         use_raw_data=payload.get("use_raw_data", True),
         sheet_name=payload.get("sheet_name"),
+        category=payload.get("category"),
+        table_type=payload.get("table_type"),
+        tags=payload.get("tags") or [],
     )
     return jsonify(rule), 201
 
