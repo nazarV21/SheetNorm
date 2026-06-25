@@ -20,6 +20,7 @@ class AIClient:
 
     def __post_init__(self):
         self.backend = current_app.config.get("AI_BACKEND", "llama_cpp")
+        self.context_tokens = int(current_app.config.get("AI_CONTEXT_TOKENS", 8192))
         self._llm = None
         # Пытаемся подключить локальную модель только если файл реально существует.
         if self.backend == "llama_cpp" and Llama:
@@ -28,7 +29,7 @@ class AIClient:
                 try:
                     self._llm = Llama(
                         model_path=str(model_path),
-                        n_ctx=4096,
+                        n_ctx=self.context_tokens,
                         n_threads=6,
                         verbose=False,
                     )
@@ -70,6 +71,10 @@ class AIClient:
         raw_data: pd.DataFrame | None = None,
         training_examples: list[dict[str, Any]] | None = None,
     ) -> pd.DataFrame:
+        raise RuntimeError(
+            "AIClient.apply_prompt is disabled. AI may generate a declarative rule or script, "
+            "but ConversionService is the only component allowed to apply transformations."
+        )
         """
         Применить текстовый промпт пользователя к таблице.
         ИИ читает описание и выполняет преобразования.

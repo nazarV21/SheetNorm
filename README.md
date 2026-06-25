@@ -102,7 +102,7 @@ powershell -ExecutionPolicy Bypass -File scripts/download_model.ps1
 
 ```text
 AI_BACKEND=llama_cpp
-AI_MODEL_PATH=models/qwen2.5-3b-instruct-q4_k_m.gguf
+AI_MODEL_PATH=models/qwen2.5-coder-7b-instruct-q4_k_m.gguf
 ```
 
 GGUF-модель не включается в Git или Docker-образ.
@@ -222,7 +222,7 @@ docker compose up --build
 SECRET_KEY=change-me
 FLASK_DEBUG=false
 AI_BACKEND=fallback
-AI_MODEL_PATH=models/qwen2.5-3b-instruct-q4_k_m.gguf
+AI_MODEL_PATH=models/qwen2.5-coder-7b-instruct-q4_k_m.gguf
 AI_MAX_TRAINING_EXAMPLES=8
 MAX_UPLOAD_MB=50
 CORS_ORIGINS=http://127.0.0.1:5000,http://localhost:5000
@@ -334,3 +334,42 @@ flask --app main run
 - убедиться, что `input/`, `output/`, `.env` и модели не попали в Git;
 - открыть итоговый `.xlsx` и проверить автофильтр, закрепление строки и `processing_summary`;
 - зафиксировать известные ограничения пилота.
+# SheetNorm Team-Ready Notes
+
+This branch adds the first production foundation without replacing the existing Flask/Jinja application:
+
+- SQLAlchemy models for users, workspaces, templates, versions, jobs, events, artifacts, quality reports, feedback, training examples and audit logs.
+- Database-backed job repository behind the existing `JobsRepository` interface.
+- JSON compatibility and `flask import-json` migration path.
+- Redis/RQ queue abstraction with sync fallback.
+- Local storage backend that stores file bytes outside PostgreSQL.
+- Pandas script validation/runtime primitives for approved script templates.
+- Extended `/health/live` and `/health/ready` endpoints while keeping `/health` backward compatible.
+
+Common commands:
+
+```bash
+python -m compileall app main.py config.py
+python -m pytest -q
+docker compose config
+docker compose build
+docker compose up -d
+docker compose exec web flask db upgrade
+docker compose exec web flask create-admin
+docker compose exec web flask import-json --dry-run
+docker compose exec web flask import-json
+```
+
+Use `DATA_STORE_BACKEND=database` for PostgreSQL-backed jobs. Use `ASYNC_MODE=rq` with Redis/RQ workers, or `ASYNC_MODE=sync` for local development without Redis.
+
+## Новый порядок работы с AI-помощником
+
+AI-помощник работает в два шага.
+
+1. Загрузите Excel и сначала проверьте исходную таблицу: лист, строки заголовков, начало данных, служебные строки и строки итогов.
+2. Если разметка неверная, напишите уточнение: `заголовки на строке 4, данные со строки 5`, `итоги удалить`, `не разворачивать в длинный формат`.
+3. После проверки исходной таблицы опишите результат: какие колонки оставить, что переименовать, какие фильтры, итоги или melt нужны.
+4. Только после этого система переформулирует задачу, соберёт внутреннее правило и построит итоговый preview.
+5. Готовый Excel создаётся только после успешного preview.
+
+Если поле инструкции пустое, приложение не строит итоговый preview и не применяет догадки как готовое правило.

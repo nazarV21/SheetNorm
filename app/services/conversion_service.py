@@ -19,6 +19,7 @@ from app.utils.rules_store import RulesStore
 from app.utils.training_examples_store import TrainingExamplesStore
 from app.utils.cross_table_converter import convert_cross_table_to_flat
 from app.utils.jobs_repository import JobsRepository
+from app.services.rule_schema import normalize_declarative_rule
 
 
 class ConversionValidationError(Exception):
@@ -346,7 +347,7 @@ class ConversionService:
                 raise ConversionValidationError("Файл не удалось прочитать как Excel.", diagnostics)
 
         prompt = rule.get("ai_improved_instruction") or rule.get("prompt") or ""
-        generated_rule = rule.get("generated_rule") or {}
+        generated_rule = normalize_declarative_rule(rule.get("generated_rule") or {})
         sheet_name = rule.get("sheet_name") or generated_rule.get("sheet_name") or 0
         use_raw_data = bool(rule.get("use_raw_data") or generated_rule)
 
@@ -358,7 +359,7 @@ class ConversionService:
                 df_rule = self._apply_generated_rule(source_path, generated_rule)
                 validation = self._validate_converted_dataframe(df_rule, stage="generated_rule")
                 diagnostics.extend(validation)
-                if any(item.get("severity") == "error" for item in validation) and strict:
+                if any(item.get("severity") == "error" for item in validation):
                     raise ConversionValidationError(
                         "Результат применения инструкции выглядит некорректно. Уточните инструкцию и обновите предпросмотр.",
                         diagnostics,
@@ -374,6 +375,10 @@ class ConversionService:
                     f"Ошибка применения внутреннего правила: {exc}",
                     "Уточните в инструкции строку заголовков, строку начала данных, нужные колонки и необходимость преобразования в длинный формат.",
                 )
+                raise ConversionValidationError(
+                    "Внутреннее правило не применилось. Исправьте инструкцию и обновите предпросмотр.",
+                    diagnostics,
+                )
                 if strict:
                     raise ConversionValidationError(
                         "Внутреннее правило не применилось. Исправьте инструкцию и обновите предпросмотр.",
@@ -385,8 +390,9 @@ class ConversionService:
         # было сформировано правило и оно упало.
         try:
             df = pd.read_excel(source_path)
-        except Exception:
-            df = pd.read_excel(source_path, sheet_name=0)
+        except Exception as exc:
+            add("error", "read_excel", f"Не удалось прочитать Excel-файл для fallback-этапа: {exc}")
+            raise ConversionValidationError("Файл не удалось прочитать как Excel.", diagnostics) from exc
 
         if rule.get("id"):
             training_examples = TrainingExamplesStore().list_examples(rule_id=rule.get("id"))
@@ -408,6 +414,16 @@ class ConversionService:
                 add("warning", "few_shot", f"Не удалось применить обучающие примеры: {exc}")
 
         if prompt:
+            add(
+                "error",
+                "llm_prompt",
+                "Текстовая инструкция не является исполняемым преобразованием без валидированного JSON-правила.",
+                "Сформируйте preview через AI-помощник и сохраните правило перед финальной обработкой.",
+            )
+            raise ConversionValidationError(
+                "Конвертация требует валидированного правила. Сырой результат не сохранён как успешный.",
+                diagnostics,
+            )
             try:
                 if use_raw_data:
                     raw_df = self._read_raw(source_path, sheet_name)
@@ -484,6 +500,7 @@ class ConversionService:
         return diagnostics
 
     def _apply_generated_rule(self, source_path: Path, rule: dict[str, Any]) -> pd.DataFrame:
+        rule = normalize_declarative_rule(rule or {})
         sheet_name = rule.get("sheet_name") or 0
         raw_df = self._read_raw(source_path, sheet_name)
         table_type = rule.get("table_type", "flat")
@@ -507,6 +524,23 @@ class ConversionService:
 
         data = self._drop_empty_columns(data)
         data = self._normalize_column_names(data)
+
+        for calculated_rule in rule.get("calculated") or []:
+            target = calculated_rule.get("name")
+            expression = calculated_rule.get("expression")
+            if target and expression:
+                try:
+                    data[target] = data.eval(expression)
+                except Exception as exc:
+                    raise ConversionValidationError(
+                        f"Не удалось вычислить колонку '{target}'.",
+                        [{
+                            "severity": "error",
+                            "stage": "calculated",
+                            "message": str(exc),
+                            "hint": "Проверьте expression и имена колонок.",
+                        }],
+                    ) from exc
 
         melt = rule.get("melt") or {}
         if table_type == "cross_table" or melt.get("enabled"):
@@ -601,6 +635,7 @@ class ConversionService:
         return pd.read_excel(path, nrows=max_rows)
 
     def _apply_schema(self, df: pd.DataFrame, schema: dict) -> pd.DataFrame:
+        schema = normalize_declarative_rule(schema or {})
         rename_map = schema.get("rename", {})
         df = df.rename(columns=rename_map)
         select_cols = schema.get("columns") or schema.get("select_columns")
@@ -609,12 +644,20 @@ class ConversionService:
         calculated = schema.get("calculated", [])
         for rule in calculated:
             target = rule.get("name")
-            expr = rule.get("expr") or rule.get("formula")
+            expr = rule.get("expression")
             if target and expr:
                 try:
                     df[target] = df.eval(expr)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    raise ConversionValidationError(
+                        f"Не удалось вычислить колонку '{target}'.",
+                        [{
+                            "severity": "error",
+                            "stage": "calculated",
+                            "message": str(exc),
+                            "hint": "Проверьте expression и имена колонок.",
+                        }],
+                    ) from exc
         return df
 
     def _save_dataframe(

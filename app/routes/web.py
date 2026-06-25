@@ -23,11 +23,12 @@ from flask import (
 from app.services.ai.instruction_assistant import InstructionAssistant
 from app.services.conversion_service import ConversionService
 from app.services.table_structure_analyzer import TableStructureAnalyzer
+from app.services.rule_schema import normalize_declarative_rule
 from app.utils.rules_store import RulesStore
 from app.utils.training_examples_store import TrainingExamplesStore
 from app.utils.feedback_store import FeedbackStore
 from app.utils.jobs_repository import JobsRepository
-from app.utils.uploads import is_excel_filename, sanitize_upload_name, save_excel_upload
+from app.utils.uploads import is_excel_filename, sanitize_upload_name, save_excel_upload, validate_excel_file
 
 
 web_bp = Blueprint("web", __name__)
@@ -41,6 +42,11 @@ def _is_excel_filename(name: str) -> bool:
 
 def _save_uploaded_file(file) -> tuple[str, str, Path]:
     job_id, original_filename, target_path = save_excel_upload(file, current_app.config["INPUT_DIR"])
+    valid, validation_error = validate_excel_file(target_path)
+    if not valid:
+        target_path.unlink(missing_ok=True)
+        (Path(current_app.config["INPUT_DIR"]) / "meta" / f"{job_id}.meta.json").unlink(missing_ok=True)
+        raise ValueError(validation_error)
     JobsRepository().create(
         job_id,
         input_filename=original_filename,
@@ -71,7 +77,7 @@ def _parse_rule_json(value: str | None) -> tuple[dict[str, Any], list[str]]:
 
 
 def _strip_request_only_report_config(generated_rule: dict[str, Any]) -> dict[str, Any]:
-    rule = dict(generated_rule or {})
+    rule = normalize_declarative_rule(generated_rule or {})
     rule.pop("excel_report", None)
     rule.pop("user_intent", None)
     return rule
@@ -122,7 +128,11 @@ def index():
         save_as_rule = request.form.get("save_as_rule") == "1"
         new_rule_name = request.form.get("new_rule_name", "").strip()
 
-        job_id, _, target_path = _save_uploaded_file(file)
+        try:
+            job_id, _, target_path = _save_uploaded_file(file)
+        except ValueError as exc:
+            flash(f"Некорректный Excel-файл: {exc}", "error")
+            return redirect(url_for("web.index"))
         service = ConversionService()
 
         instruction_details = None
@@ -254,8 +264,38 @@ def job_detail(job_id: str):
 
 @web_bp.get("/download/<path:filename>")
 def download(filename: str):
-    output_dir = current_app.config["OUTPUT_DIR"]
-    return send_from_directory(output_dir, filename, as_attachment=True)
+    safe_name = Path(filename).name
+    if safe_name != filename:
+        return render_template(
+            "error.html",
+            title="Файл не найден",
+            details="Запрошенный результат недоступен.",
+            suggestion="Откройте карточку успешно завершённой задачи и скачайте файл оттуда.",
+        ), 404
+    output_dir = Path(current_app.config["OUTPUT_DIR"]).resolve()
+    target = (output_dir / safe_name).resolve()
+    if target.parent != output_dir or not target.exists():
+        return render_template(
+            "error.html",
+            title="Файл не найден",
+            details="Запрошенный результат недоступен.",
+            suggestion="Откройте карточку успешно завершённой задачи и скачайте файл оттуда.",
+        ), 404
+    matching_job = next(
+        (
+            job for job in JobsRepository().list()
+            if job.get("status") == "success" and Path(str(job.get("output_filename") or "")).name == safe_name
+        ),
+        None,
+    )
+    if not matching_job:
+        return render_template(
+            "error.html",
+            title="Файл не найден",
+            details="Для файла нет успешно завершённой задачи.",
+            suggestion="Повторите обработку и скачайте результат из карточки задачи.",
+        ), 404
+    return send_from_directory(output_dir, safe_name, as_attachment=True)
 
 
 @web_bp.route("/history", methods=["GET"])
@@ -467,18 +507,26 @@ def instruction_assistant():
             flash("Загрузите файл Excel в формате .xlsx или .xls.", "error")
             return redirect(url_for("web.instruction_assistant"))
 
-        job_id, filename, path = _save_uploaded_file(file)
+        try:
+            job_id, filename, path = _save_uploaded_file(file)
+        except ValueError as exc:
+            flash(f"Некорректный Excel-файл: {exc}", "error")
+            return redirect(url_for("web.instruction_assistant"))
         assistant = InstructionAssistant()
         result = assistant.prepare_instruction(path, raw_prompt, sheet_name=sheet_name)
         result["job_id"] = job_id
         result["source_filename"] = filename
         result["revision_number"] = 1
 
-        target_preview, preview_error, conversion_diagnostics = _preview_for_assistant(
-            job_id,
-            result.get("ai_improved_instruction") or raw_prompt,
-            result.get("generated_rule") or {},
-        )
+        target_preview = None
+        preview_error = None
+        conversion_diagnostics: list[dict[str, Any]] = []
+        if result.get("ready_for_preview"):
+            target_preview, preview_error, conversion_diagnostics = _preview_for_assistant(
+                job_id,
+                result.get("ai_improved_instruction") or raw_prompt,
+                result.get("generated_rule") or {},
+            )
         return _render_assistant_page(
             result=result,
             raw_prompt=raw_prompt,

@@ -1,7 +1,7 @@
 param(
-    [string]$ModelUrl = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf?download=true",
-    [string]$ModelPath = "models/qwen2.5-3b-instruct-q4_k_m.gguf",
-    [string]$ExpectedSha256 = "626B4A6678B86442240E33DF819E00132D3BA7DDDFE1CDC4FBB18E0A9615C62D",
+    [string]$ModelUrl = "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf?download=true",
+    [string]$ModelPath = "models/qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+    [string]$ExpectedSha256 = "",
     [switch]$Force
 )
 
@@ -31,7 +31,7 @@ Write-Host "Source: $ModelUrl"
 curl.exe -L --fail --progress-bar -o $tempPath $ModelUrl
 
 $hash = (Get-FileHash -LiteralPath $tempPath -Algorithm SHA256).Hash.ToUpperInvariant()
-if ($hash -ne $ExpectedSha256.ToUpperInvariant()) {
+if ($ExpectedSha256 -and $hash -ne $ExpectedSha256.ToUpperInvariant()) {
     Remove-Item -LiteralPath $tempPath -Force
     throw "SHA256 mismatch. Expected $ExpectedSha256, got $hash"
 }

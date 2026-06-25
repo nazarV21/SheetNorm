@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 from typing import BinaryIO
 
+import pandas as pd
 from werkzeug.utils import secure_filename
 
 
@@ -23,6 +24,19 @@ def sanitize_upload_name(name: str) -> str:
 
 def is_excel_filename(name: str) -> bool:
     return Path(name or "").suffix.lower() in ALLOWED_EXCEL_EXTENSIONS
+
+
+def validate_excel_file(path: str | Path) -> tuple[bool, str]:
+    path = Path(path)
+    if not path.exists() or path.stat().st_size == 0:
+        return False, "Файл пустой."
+    try:
+        book = pd.ExcelFile(path)
+    except Exception as exc:
+        return False, f"Файл не удалось прочитать как Excel: {exc}"
+    if not book.sheet_names:
+        return False, "В Excel-файле нет листов."
+    return True, ""
 
 
 def save_excel_upload(file: BinaryIO, input_dir: str | Path) -> tuple[str, str, Path]:

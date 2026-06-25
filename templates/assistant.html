@@ -152,6 +152,20 @@
     {% endif %}
 
     <h3><span class="step-badge">Шаг 4</span>Инструкция: исходная и улучшенная</h3>
+    {% if result.requires_user_instruction %}
+      <div class="hint-box">
+        <strong>Итоговый предпросмотр ещё не строился.</strong>
+        <p>{{ result.ai_improved_instruction }}</p>
+        {% if result.suggested_user_instructions %}
+          <strong>Возможные уточнения:</strong>
+          <ul>
+            {% for suggestion in result.suggested_user_instructions %}
+              <li>{{ suggestion }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+    {% else %}
     <div class="compare-grid">
       <div class="compare-card">
         <h4>Что написал пользователь</h4>
@@ -172,6 +186,8 @@
       {% endfor %}
     </div>
 
+
+    {% endif %}
 
     {% if result.clarifying_questions %}
       <div class="hint-box">
@@ -195,13 +211,13 @@
       <h3><span class="step-badge">Шаг 5</span>Изменить инструкцию и обновить предпросмотр</h3>
       <input type="hidden" name="job_id" value="{{ result.job_id }}">
       <input type="hidden" name="raw_prompt" value="{{ result.user_raw_prompt }}">
-      <input type="hidden" name="previous_ai_instruction" value="{{ result.ai_improved_instruction }}">
+      <input type="hidden" name="previous_ai_instruction" value="{% if not result.requires_user_instruction %}{{ result.ai_improved_instruction }}{% endif %}">
       <input type="hidden" name="source_filename" value="{{ result.source_filename or analysis.file_name }}">
       <input type="hidden" name="revision_number" value="{{ result.revision_number or 1 }}">
 
       <div class="field">
         <label for="prompt">Инструкция, по которой система должна построить результат</label>
-        <textarea id="prompt" name="prompt" rows="8">{{ result.ai_improved_instruction }}</textarea>
+        <textarea id="prompt" name="prompt" rows="8" placeholder="Например: заголовки на строке 4, данные со строки 5; удалить итоги; оставить колонки Код, Наименование, Сумма; месяцы перенести в колонку Период.">{% if not result.requires_user_instruction %}{{ result.ai_improved_instruction }}{% endif %}</textarea>
         <p class="meta">
           Если предпросмотр не соответствует ожиданиям, не правьте таблицу руками. Измените только инструкцию.
           Явные фразы вроде «заголовки находятся на строке 4» и «заголовки в одной строке» имеют приоритет над автоанализом.

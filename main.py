@@ -1,9 +1,23 @@
 import os
 
-from app import create_app
+from dotenv import load_dotenv
 
 
-app = create_app()
+def load_environment() -> None:
+    dotenv_path = os.getenv("SHEETNORM_DOTENV_PATH")
+    load_dotenv(dotenv_path=dotenv_path or None)
+
+
+load_environment()
+
+from app import create_app  # noqa: E402
+
+
+def create_configured_app():
+    return create_app()
+
+
+app = create_configured_app()
 
 
 if __name__ == "__main__":

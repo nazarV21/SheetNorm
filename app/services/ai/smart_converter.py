@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import logging
 import pandas as pd
 
+logger = logging.getLogger(__name__)
 
 class SmartConverter:
     """
@@ -74,7 +76,8 @@ class SmartConverter:
                 # Для обычных таблиц применяем сопоставление колонок
                 return self._convert_simple_pattern(df_current, df_example_source, df_example_target)
                 
-        except Exception:
+        except Exception as exc:
+            logger.warning("Training-pattern conversion failed", exc_info=exc)
             # Если что-то пошло не так, даём основному пайплайну шанс обработать файл
             return None
 
@@ -240,4 +243,3 @@ class SmartConverter:
             result = result[available_cols]
         
         return result
-

@@ -11,7 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-RUN mkdir -p input output models training_examples
+RUN mkdir -p input output models training_examples storage data
 
 EXPOSE 5000
 

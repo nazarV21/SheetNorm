@@ -351,8 +351,8 @@ class TrainingExamplesStore:
         for key in ("source_path", "target_path"):
             try:
                 Path(normalized[key]).unlink(missing_ok=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                current_app.logger.warning("Training example file cleanup failed: %s", exc)
 
         self._save_all(filtered)
         return True

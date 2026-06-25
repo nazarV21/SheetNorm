@@ -7,6 +7,9 @@ import uuid
 from datetime import datetime
 
 from flask import current_app
+from pydantic import ValidationError
+
+from app.services.rule_schema import normalize_declarative_rule
 
 
 VALID_TABLE_TYPES = {"flat", "multi_header", "cross_table"}
@@ -124,6 +127,12 @@ class RulesStore:
     ) -> dict[str, Any]:
         """Добавить новое правило/шаблон с промптом и метаданными."""
         rules = self._load_all()
+        try:
+            generated_rule = normalize_declarative_rule(generated_rule or {})
+            validation_errors: list[str] = []
+        except ValidationError as exc:
+            validation_errors = [f"JSON rule validation: {error['msg']}" for error in exc.errors()]
+            generated_rule = generated_rule or {}
         resolved_table_type = table_type or (generated_rule or {}).get("table_type") or (fingerprint or {}).get("table_type") or "flat"
         warnings = self.validate_rule_payload(
             name=name,
@@ -131,6 +140,7 @@ class RulesStore:
             generated_rule=generated_rule,
             table_type=resolved_table_type,
         )
+        warnings.extend(validation_errors)
         rule = {
             "id": str(uuid.uuid4()),
             "type": "prompt_template",
@@ -182,7 +192,10 @@ class RulesStore:
                 if raw_user_prompt is not None:
                     rule["raw_user_prompt"] = raw_user_prompt
                 if generated_rule is not None:
-                    rule["generated_rule"] = generated_rule
+                    try:
+                        rule["generated_rule"] = normalize_declarative_rule(generated_rule)
+                    except ValidationError:
+                        rule["generated_rule"] = generated_rule
                 if fingerprint is not None:
                     rule["fingerprint"] = fingerprint
                 if description is not None:

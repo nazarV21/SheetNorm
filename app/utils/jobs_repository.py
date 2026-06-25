@@ -26,6 +26,20 @@ class JobsRepository:
 
     def __init__(self, path: str | Path | None = None) -> None:
         self.path = Path(path or current_app.config["JOBS_FILE"])
+        self._use_database = False
+        if path is None:
+            try:
+                self._use_database = current_app.config.get("DATA_STORE_BACKEND") == "database"
+            except RuntimeError:
+                self._use_database = False
+        self._db_repo = None
+
+    def _database(self):
+        if self._db_repo is None:
+            from app.db.repositories.jobs import DBJobsRepository
+
+            self._db_repo = DBJobsRepository()
+        return self._db_repo
 
     def _load_all(self) -> list[dict[str, Any]]:
         try:
@@ -50,6 +64,15 @@ class JobsRepository:
         rule_name: str | None = None,
         original_instruction: str | None = None,
     ) -> dict[str, Any]:
+        if self._use_database:
+            return self._database().create(
+                job_id,
+                input_filename=input_filename,
+                input_path=str(input_path),
+                rule_id=rule_id,
+                rule_name=rule_name,
+                original_instruction=original_instruction,
+            )
         with _LOCK:
             jobs = self._load_all()
             existing = next((job for job in jobs if job.get("job_id") == job_id), None)
@@ -85,10 +108,14 @@ class JobsRepository:
             return job
 
     def get(self, job_id: str) -> dict[str, Any] | None:
+        if self._use_database:
+            return self._database().get(job_id)
         with _LOCK:
             return next((job for job in self._load_all() if job.get("job_id") == job_id), None)
 
     def list(self, *, status: str | None = None) -> list[dict[str, Any]]:
+        if self._use_database:
+            return self._database().list(status=status)
         with _LOCK:
             jobs = self._load_all()
         if status:
@@ -107,6 +134,8 @@ class JobsRepository:
         return None
 
     def update_status(self, job_id: str, status: str, **changes: Any) -> dict[str, Any] | None:
+        if self._use_database:
+            return self._database().update_status(job_id, status, **changes)
         if status not in JOB_STATUSES:
             raise ValueError(f"Unsupported ProcessingJob status: {status}")
         return self._update(job_id, {"status": status, **changes})
@@ -124,6 +153,18 @@ class JobsRepository:
         original_instruction: str | None = None,
         improved_instruction: str | None = None,
     ) -> dict[str, Any] | None:
+        if self._use_database:
+            return self._database().update_result(
+                job_id,
+                output_filename=output_filename,
+                output_path=str(output_path),
+                quality_report=quality_report,
+                duration_seconds=duration_seconds,
+                rule_id=rule_id,
+                rule_name=rule_name,
+                original_instruction=original_instruction,
+                improved_instruction=improved_instruction,
+            )
         quality = quality_report or {}
         return self.update_status(
             job_id,
@@ -154,6 +195,8 @@ class JobsRepository:
         code: str = "CONVERSION_FAILED",
         details: str | None = None,
     ) -> dict[str, Any] | None:
+        if self._use_database:
+            return self._database().append_error(job_id, error, code=code, details=details)
         job = self.get(job_id)
         if not job:
             return None

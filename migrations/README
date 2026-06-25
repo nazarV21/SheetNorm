@@ -1,0 +1,6 @@
+Alembic migrations for SheetNorm.
+
+Run:
+
+flask db upgrade
+

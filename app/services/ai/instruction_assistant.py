@@ -38,12 +38,14 @@ class InstructionAssistant:
     def __init__(self) -> None:
         self.analyzer = TableStructureAnalyzer()
         self.backend = current_app.config.get("AI_BACKEND", "llama_cpp")
+        self.context_tokens = int(current_app.config.get("AI_CONTEXT_TOKENS", 8192))
+        self.max_completion_tokens = int(current_app.config.get("AI_MAX_COMPLETION_TOKENS", 1000))
         self._llm = None
         if self.backend == "llama_cpp" and Llama:
             model_path = Path(current_app.config.get("AI_MODEL_PATH", ""))
             if model_path.exists():
                 try:
-                    self._llm = Llama(model_path=str(model_path), n_ctx=4096, n_threads=6, verbose=False)
+                    self._llm = Llama(model_path=str(model_path), n_ctx=self.context_tokens, n_threads=6, verbose=False)
                 except Exception as exc:
                     current_app.logger.warning("LLM model was found but could not be loaded: %s", exc)
 
@@ -63,20 +65,23 @@ class InstructionAssistant:
         """
         user_text = (user_text or "").strip()
         previous_ai_instruction = (previous_ai_instruction or "").strip()
+        has_user_instruction = bool(user_text)
 
         # Первый анализ учитывает только текущую инструкцию пользователя.
         analysis = self.analyzer.analyze_excel(excel_path, sheet_name=sheet_name, instruction_text=user_text)
-        learning_examples = FeedbackStore().find_relevant(
-            user_text=user_text,
-            fingerprint=(analysis.get("fingerprint") or {}),
-            limit=5,
-        )
+        learning_examples = []
+        if has_user_instruction:
+            learning_examples = FeedbackStore().find_relevant(
+                user_text=user_text,
+                fingerprint=(analysis.get("fingerprint") or {}),
+                limit=5,
+            )
 
         # Если для похожих файлов уже была исправленная инструкция, используем её
-        # как скрытую подсказку для повторного анализа. Так система «учится» на
-        # ошибках: например, если раньше пользователь исправил заголовки на одну
-        # строку, следующий похожий файл сразу получит такой приоритет.
-        learned_hint = self._build_learned_instruction_hint(learning_examples)
+        # как скрытую подсказку только вместе с явной задачей пользователя. Для
+        # пустого поля инструкции это слишком агрессивно: система начинает
+        # угадывать цель обработки и может уверенно построить неверный preview.
+        learned_hint = self._build_learned_instruction_hint(learning_examples) if has_user_instruction else ""
         if learned_hint and learned_hint.lower() not in user_text.lower():
             analysis = self.analyzer.analyze_excel(
                 excel_path,
@@ -86,9 +91,13 @@ class InstructionAssistant:
             analysis["learned_instruction_hint"] = learned_hint
 
         first_intent = self._detect_user_intent(user_text, analysis)
-        improved = self._improve_with_llm(analysis, user_text, first_intent, learning_examples) if self._llm else None
+        improved = self._improve_with_llm(analysis, user_text, first_intent, learning_examples) if self._llm and has_user_instruction else None
         if not improved:
-            improved = self._fallback_improve(analysis, user_text, first_intent, learning_examples)
+            improved = (
+                self._fallback_improve(analysis, user_text, first_intent, learning_examples)
+                if has_user_instruction
+                else self._analysis_only_instruction(analysis)
+            )
 
         # Report actions must come from the current user text, not from learned hints
         # or the improved instruction, otherwise filters/totals leak into similar files.
@@ -107,16 +116,48 @@ class InstructionAssistant:
             "previous_ai_instruction": previous_ai_instruction,
             "ai_improved_instruction": improved,
             "generated_rule": rule,
-            "engine": self.backend if self._llm else "fallback",
+            "engine": "analysis_only" if not has_user_instruction else (self.backend if self._llm else "fallback"),
+            "requires_user_instruction": not has_user_instruction,
+            "ready_for_preview": has_user_instruction,
             "user_intent": final_intent,
             "how_ai_understood": how_understood,
             "instruction_changes": self._build_instruction_changes(user_text, improved, analysis, final_intent),
             "learning_examples": self._compact_learning_examples(learning_examples),
             "internal_rule_summary": self._build_internal_rule_summary(rule),
             "clarifying_questions": analysis.get("questions") or [],
+            "suggested_user_instructions": self._build_suggested_user_instructions(analysis),
             "instruction_overrides": analysis.get("instruction_overrides") or {},
             "learned_instruction_hint": analysis.get("learned_instruction_hint"),
         }
+
+    def _analysis_only_instruction(self, analysis: dict[str, Any]) -> str:
+        sheet = analysis.get("selected_sheet") or "первый лист"
+        headers = self._human_rows(analysis.get("header_rows") or [])
+        data_start = analysis.get("data_start_row_human") or "не определено"
+        table_type = analysis.get("table_type") or "unknown"
+        return (
+            f"Файл проанализирован без пользовательской задачи. Лист: {sheet}. "
+            f"Предположительный тип таблицы: {table_type}. "
+            f"Предположительные строки заголовков: {headers}; данные начинаются со строки {data_start}. "
+            "Перед построением результата уточните, что нужно получить: какие строки удалить, какие колонки оставить, "
+            "нужно ли разворачивать таблицу в длинный формат, какие фильтры или итоги добавить."
+        )
+
+    def _build_suggested_user_instructions(self, analysis: dict[str, Any]) -> list[str]:
+        suggestions = [
+            "Если разметка верная: очистить таблицу, удалить пустые строки и привести заголовки к нормальному виду.",
+            f"Если заголовки определены неверно: заголовки на строке {analysis.get('data_start_row_human') or 1}, данные со следующей строки.",
+        ]
+        if analysis.get("total_rows"):
+            suggestions.append("Удалить строки Итого, Всего и Total из результата.")
+        if analysis.get("table_type") == "cross_table":
+            suggestions.append("Месяцы или периоды в колонках перенести в колонку Период, значения перенести в колонку Значение.")
+        elif analysis.get("table_type") == "multi_header":
+            suggestions.append("Объединить многоуровневые заголовки в понятные названия колонок без разворота в длинный формат.")
+        id_columns = [str(item.get("name")) for item in (analysis.get("id_columns") or [])[:4] if item.get("name")]
+        if id_columns:
+            suggestions.append("Оставить ключевые колонки: " + ", ".join(id_columns) + ".")
+        return suggestions[:6]
 
     def _improve_with_llm(
         self,
@@ -140,11 +181,58 @@ class InstructionAssistant:
             "ИТОГОВАЯ ИНСТРУКЦИЯ:"
         )
         try:
-            completion = self._llm.create_completion(prompt=prompt, temperature=0.15, max_tokens=1000)
+            prompt, max_tokens = self._fit_prompt_to_context(prompt, self.max_completion_tokens)
+            completion = self._llm.create_completion(prompt=prompt, temperature=0.15, max_tokens=max_tokens)
             text = completion["choices"][0]["text"].strip()
             return self._clean_text(text)
-        except Exception:
+        except Exception as exc:
+            current_app.logger.warning("LLM instruction improvement failed", exc_info=exc)
             return None
+
+    def _fit_prompt_to_context(self, prompt: str, requested_max_tokens: int) -> tuple[str, int]:
+        token_count = self._count_tokens(prompt)
+        reserved_tokens = 128
+        available_for_response = self.context_tokens - token_count - reserved_tokens
+        if available_for_response >= requested_max_tokens:
+            return prompt, requested_max_tokens
+        if available_for_response >= 128:
+            return prompt, available_for_response
+
+        prompt_budget = max(512, self.context_tokens - max(requested_max_tokens, 256) - reserved_tokens)
+        compact_prompt = self._truncate_prompt(prompt, prompt_budget)
+        compact_token_count = self._count_tokens(compact_prompt)
+        max_tokens = self.context_tokens - compact_token_count - reserved_tokens
+        if max_tokens < 128:
+            raise ValueError(
+                f"LLM prompt is too large after compaction: {compact_token_count} tokens for context {self.context_tokens}"
+            )
+        current_app.logger.warning(
+            "LLM prompt was compacted to fit context window: original_tokens=%s compact_tokens=%s context_tokens=%s",
+            token_count,
+            compact_token_count,
+            self.context_tokens,
+        )
+        return compact_prompt, min(requested_max_tokens, max_tokens)
+
+    def _count_tokens(self, prompt: str) -> int:
+        if self._llm is not None and hasattr(self._llm, "tokenize"):
+            return len(self._llm.tokenize(prompt.encode("utf-8"), add_bos=True))
+        return max(1, len(prompt) // 4)
+
+    def _truncate_prompt(self, prompt: str, token_budget: int) -> str:
+        if self._count_tokens(prompt) <= token_budget:
+            return prompt
+        marker = "\n\n[Контекст сокращён из-за лимита окна локальной LLM.]\n\n"
+        ratio = token_budget / max(self._count_tokens(prompt), 1)
+        char_budget = max(1000, int(len(prompt) * ratio * 0.85))
+        head_chars = int(char_budget * 0.6)
+        tail_chars = max(500, char_budget - head_chars - len(marker))
+        compact = prompt[:head_chars] + marker + prompt[-tail_chars:]
+        while self._count_tokens(compact) > token_budget and head_chars > 500 and tail_chars > 300:
+            head_chars = int(head_chars * 0.85)
+            tail_chars = int(tail_chars * 0.85)
+            compact = prompt[:head_chars] + marker + prompt[-tail_chars:]
+        return compact
 
     def _fallback_improve(
         self,
