@@ -1,0 +1,200 @@
+{% extends "layout.html" %}
+{% block title %}Пакетная обработка — SheetNorm{% endblock %}
+{% block content %}
+  <div class="page-header">
+    <div>
+      <div class="eyebrow">Пакетная обработка</div>
+      <h1>{{ batch.folder_name or 'Группа файлов' }}</h1>
+      <p class="lead">Файлы обрабатываются независимо в фоне. Страницу можно закрыть и вернуться позже.</p>
+    </div>
+    <div class="button-row">
+      <a class="action-link" href="{{ url_for('web.download_batch', batch_id=batch.batch_id) }}">Скачать готовые результаты ZIP</a>
+      {% if not batch.terminal %}
+        <form method="post" action="{{ url_for('web.cancel_batch', batch_id=batch.batch_id) }}">
+          <button type="submit" class="secondary">Остановить активные</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="batch-summary-grid" id="batch-summary">
+    <div><strong>Всего</strong><br><span id="batch-total">{{ batch.jobs|length }}</span></div>
+    <div><strong>В работе</strong><br><span id="batch-active">{{ (batch.statuses.get('created', 0) + batch.statuses.get('queued', 0) + batch.statuses.get('processing', 0)) }}</span></div>
+    <div><strong>Готово</strong><br><span id="batch-success">{{ batch.statuses.get('success', 0) }}</span></div>
+    <div><strong>Ошибки / остановлено</strong><br><span id="batch-problems">{{ batch.statuses.get('failed', 0) + batch.statuses.get('cancelled', 0) }}</span></div>
+  </div>
+
+  <div class="hint-box" id="folder-save-state">
+    <strong>Автосохранение рядом с исходной папкой</strong>
+    <p id="folder-save-message">
+      Если пакет был запущен кнопкой «Выбрать папку и сохранить результаты рядом», готовые файлы будут записаны в подпапку <code>SheetNorm_results</code>. В остальных браузерах используйте ZIP.
+    </p>
+    <button type="button" class="secondary" id="folder-permission-button" hidden>Разрешить запись в папку</button>
+  </div>
+
+  <section class="panel">
+    <h3>Файлы пакета</h3>
+    <div class="responsive-record-list" id="batch-jobs-body">
+      {% for job in batch.jobs %}
+        <article class="responsive-record" data-job-id="{{ job.job_id }}">
+          <div class="responsive-record-head">
+            <div class="responsive-record-title"><strong>{{ job.input_filename }}</strong></div>
+            <span class="status status-{{ job.status }}">{{ job.status }}</span>
+          </div>
+          <div class="responsive-record-meta">
+            <div><small>Этап</small>{{ job.stage or '—' }}</div>
+            <div><small>Прогресс</small>{{ job.progress or 0 }}%</div>
+            <div><small>Задача</small><a href="{{ url_for('web.job_detail', job_id=job.job_id) }}">Открыть</a></div>
+            <div><small>Результат</small>{% if job.status == 'success' %}<a href="{{ url_for('api.job_result', job_id=job.job_id) }}">Скачать</a>{% else %}Пока отсутствует{% endif %}</div>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <script>
+    const batchId = {{ batch.batch_id|tojson }};
+    const terminalStatuses = new Set(['success', 'failed', 'cancelled']);
+
+    function openHandleDb() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open('sheetnorm-folder-handles', 1);
+        request.onupgradeneeded = () => request.result.createObjectStore('handles');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function getStoredDirectoryHandle() {
+      try {
+        const db = await openHandleDb();
+        return await new Promise((resolve, reject) => {
+          const transaction = db.transaction('handles', 'readonly');
+          const request = transaction.objectStore('handles').get(batchId);
+          request.onsuccess = () => resolve(request.result || null);
+          request.onerror = () => reject(request.error);
+        });
+      } catch (_error) {
+        return null;
+      }
+    }
+
+    async function saveReadyResults(batch) {
+      const rootHandle = await getStoredDirectoryHandle();
+      const state = document.getElementById('folder-save-message');
+      const permissionButton = document.getElementById('folder-permission-button');
+      if (!rootHandle) {
+        state.textContent = 'Папка не была предоставлена этому браузеру. Готовые результаты можно скачать одним ZIP.';
+        return;
+      }
+      const permission = await rootHandle.queryPermission({ mode: 'readwrite' });
+      if (permission !== 'granted') {
+        state.textContent = 'Для автоматического сохранения нужно повторно разрешить запись в выбранную папку.';
+        permissionButton.hidden = false;
+        return;
+      }
+      permissionButton.hidden = true;
+      const outputHandle = await rootHandle.getDirectoryHandle('SheetNorm_results', { create: true });
+      const savedKey = `sheetnorm-saved-${batchId}`;
+      const saved = new Set(JSON.parse(localStorage.getItem(savedKey) || '[]'));
+      for (const job of batch.jobs || []) {
+        if (job.status !== 'success' || saved.has(job.job_id)) continue;
+        const response = await fetch(`/api/jobs/${job.job_id}/result`);
+        if (!response.ok) continue;
+        const blob = await response.blob();
+        const resultName = job.output_filename || `${job.input_filename || job.job_id}_converted.xlsx`;
+        const fileHandle = await outputHandle.getFileHandle(resultName, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        saved.add(job.job_id);
+        localStorage.setItem(savedKey, JSON.stringify([...saved]));
+      }
+      state.textContent = `Готовые файлы автоматически сохраняются в ${rootHandle.name}\\SheetNorm_results. Сохранено: ${saved.size}.`;
+    }
+
+    function renderBatch(batch) {
+      const jobs = batch.jobs || [];
+      document.getElementById('batch-total').textContent = jobs.length;
+      document.getElementById('batch-success').textContent = jobs.filter(job => job.status === 'success').length;
+      document.getElementById('batch-active').textContent = jobs.filter(job => !terminalStatuses.has(job.status)).length;
+      document.getElementById('batch-problems').textContent = jobs.filter(job => job.status === 'failed' || job.status === 'cancelled').length;
+      const body = document.getElementById('batch-jobs-body');
+      body.replaceChildren();
+      jobs.forEach(job => {
+        const card = document.createElement('article');
+        card.className = 'responsive-record';
+        card.dataset.jobId = job.job_id;
+        const head = document.createElement('div');
+        head.className = 'responsive-record-head';
+        const title = document.createElement('div');
+        title.className = 'responsive-record-title';
+        const strong = document.createElement('strong');
+        strong.textContent = job.input_filename || job.job_id;
+        title.appendChild(strong);
+        const status = document.createElement('span');
+        status.className = `status status-${job.status}`;
+        status.textContent = job.status;
+        head.append(title, status);
+        const meta = document.createElement('div');
+        meta.className = 'responsive-record-meta';
+        const values = [
+          ['Этап', job.stage || '—'],
+          ['Прогресс', `${job.progress || 0}%`],
+        ];
+        values.forEach(([label, value]) => {
+          const item = document.createElement('div');
+          const caption = document.createElement('small');
+          caption.textContent = label;
+          item.append(caption, document.createTextNode(value));
+          meta.appendChild(item);
+        });
+        const openItem = document.createElement('div');
+        const openCaption = document.createElement('small');
+        openCaption.textContent = 'Задача';
+        const open = document.createElement('a');
+        open.href = `/jobs/${job.job_id}`;
+        open.textContent = 'Открыть';
+        openItem.append(openCaption, open);
+        meta.appendChild(openItem);
+        const resultItem = document.createElement('div');
+        const resultCaption = document.createElement('small');
+        resultCaption.textContent = 'Результат';
+        resultItem.appendChild(resultCaption);
+        if (job.status === 'success') {
+          const download = document.createElement('a');
+          download.href = `/api/jobs/${job.job_id}/result`;
+          download.textContent = 'Скачать';
+          resultItem.appendChild(download);
+        } else {
+          resultItem.appendChild(document.createTextNode('Пока отсутствует'));
+        }
+        meta.appendChild(resultItem);
+        card.append(head, meta);
+        body.appendChild(card);
+      });
+    }
+
+
+    document.getElementById('folder-permission-button').addEventListener('click', async () => {
+      const handle = await getStoredDirectoryHandle();
+      if (!handle) return;
+      const permission = await handle.requestPermission({ mode: 'readwrite' });
+      if (permission === 'granted') pollBatch();
+    });
+
+    async function pollBatch() {
+      try {
+        const response = await fetch(`/api/batches/${batchId}`, { cache: 'no-store' });
+        if (!response.ok) return;
+        const batch = await response.json();
+        renderBatch(batch);
+        await saveReadyResults(batch);
+        if (!batch.terminal) window.setTimeout(pollBatch, 1500);
+      } catch (_error) {
+        window.setTimeout(pollBatch, 3000);
+      }
+    }
+    pollBatch();
+  </script>
+{% endblock %}

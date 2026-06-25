@@ -98,6 +98,6 @@ Browser / API
 
 The old JSON stores remain available for compatibility and migration. `DATA_STORE_BACKEND=database` enables the DB-backed job repository; `TestConfig` and legacy local flows can still use JSON.
 
-Long-running work should be queued with `enqueue_conversion`. In `ASYNC_MODE=sync`, the same conversion path runs inline for local development and tests. In `ASYNC_MODE=rq`, the web app enqueues an RQ job and workers execute conversion.
+Long-running work is submitted through `enqueue_conversion`. In `ASYNC_MODE=thread`, a local in-process executor keeps the job running after the browser leaves the page; this mode is intended for local pilots and does not survive an application restart. In `ASYNC_MODE=rq`, the web app enqueues an RQ job and workers execute conversion independently. `ASYNC_MODE=sync` is reserved for tests and diagnostics. Active jobs can be cancelled from `/jobs`; workers check cancellation before saving a result.
 
 Files are represented by `Artifact` rows but stored outside PostgreSQL. The local backend is replaceable with NAS, MinIO or S3-compatible storage.

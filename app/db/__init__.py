@@ -1,4 +1,5 @@
 from .models import (
+    AISettings,
     Artifact,
     AuditLog,
     InstructionFeedback,
@@ -14,6 +15,7 @@ from .models import (
 )
 
 __all__ = [
+    "AISettings",
     "Artifact",
     "AuditLog",
     "InstructionFeedback",

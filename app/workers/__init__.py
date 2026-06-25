@@ -1,4 +1,3 @@
-from .queue import enqueue_conversion, run_conversion_job
+from .queue import cancel_conversion, enqueue_conversion, run_conversion_job
 
-__all__ = ["enqueue_conversion", "run_conversion_job"]
-
+__all__ = ["cancel_conversion", "enqueue_conversion", "run_conversion_job"]

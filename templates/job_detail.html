@@ -1,37 +1,191 @@
 {% extends "layout.html" %}
 {% block title %}Задача {{ job.job_id }} — SheetNorm{% endblock %}
 {% block content %}
-  <div class="page-header"><div><div class="eyebrow">Подробный отчёт</div><h1>{{ job.input_filename or job.job_id }}</h1><p class="meta">Job ID: <code>{{ job.job_id }}</code></p></div><span class="status status-{{ job.status }}">{{ job.status }}</span></div>
+  {% set status_labels = {
+    'created': 'Черновик', 'queued': 'В очереди', 'processing': 'Выполняется',
+    'requires_review': 'Можно продолжить', 'success': 'Готово', 'failed': 'Ошибка', 'cancelled': 'Остановлена'
+  } %}
+  {% set stage_labels = {
+    'created': 'Черновик', 'queued': 'Ожидает worker', 'preparing': 'Подготовка',
+    'analyzing_file': 'Анализ файла', 'improving_instruction': 'Уточнение инструкции',
+    'building_preview': 'Предпросмотр', 'waiting_for_review': 'Ожидает проверки',
+    'executing_transformation': 'Конвертация', 'completed': 'Завершено', 'cancelled': 'Остановлено'
+  } %}
+  <div class="page-header">
+    <div>
+      <div class="eyebrow">{% if job.job_kind == 'assistant' %}Рабочая сессия AI-помощника{% else %}Задача конвертации{% endif %}</div>
+      <h1>{{ job.input_filename or job.job_id }}</h1>
+      <p class="meta">Job ID: <code>{{ job.job_id }}</code></p>
+    </div>
+    <span id="job-status" class="status status-{{ job.status }}">{{ status_labels.get(job.status, job.status) }}</span>
+  </div>
 
-  {% if job.status == 'failed' %}<div class="warning-box"><strong>Обработка завершилась ошибкой.</strong> Проверьте описание ниже, затем загрузите другой файл, выберите другой шаблон или уточните инструкцию.</div>{% endif %}
+  {% if job.status in ['created', 'queued', 'processing'] %}
+    <section class="panel" id="active-job-panel">
+      <h3 style="margin-top:0;">Обработка выполняется в фоне</h3>
+      <p class="meta">Переход между страницами или закрытие вкладки не останавливает задачу. Остановить её можно только кнопкой ниже.</p>
+      <div class="job-progress">
+        <div class="progress-track"><div id="job-progress-fill" class="progress-fill" style="width:{{ job.progress or 0 }}%;"></div></div>
+        <div class="job-progress-meta"><span id="job-stage">{{ stage_labels.get(job.stage, job.stage or job.status) }}</span><span id="job-progress-value">{{ job.progress or 0 }}%</span></div>
+      </div>
+      <form class="inline-form" method="post" action="{{ url_for('web.cancel_job', job_id=job.job_id) }}" onsubmit="return confirm('Остановить обработку этой задачи?');">
+        <button class="danger-btn" type="submit">Остановить задачу</button>
+      </form>
+    </section>
+  {% elif job.status == 'requires_review' %}
+    <div class="hint-box"><strong>Анализ и предпросмотр готовы.</strong><p>Откройте рабочую сессию и продолжите с шага {{ job.resume_step or 1 }}.</p></div>
+  {% elif job.status == 'failed' %}
+    <div class="warning-box"><strong>Операция завершилась ошибкой.</strong> Черновик, файл и инструкция сохранены; можно открыть сессию или повторить задачу.</div>
+  {% elif job.status == 'cancelled' %}
+    <div class="warning-box"><strong>Задача остановлена пользователем.</strong> Сохранённый черновик можно продолжить или запустить повторно.</div>
+  {% endif %}
 
   <div class="stats-grid">
     <div><strong>Создана</strong><br><span class="meta">{{ job.created_at or '—' }}</span></div>
-    <div><strong>Шаблон</strong><br><span class="meta">{{ job.rule_name or 'Без шаблона' }}</span></div>
-    <div><strong>Длительность</strong><br>{{ '%.3f'|format(job.duration_seconds) ~ ' c' if job.duration_seconds is not none else '—' }}</div>
-    <div><strong>Тип таблицы</strong><br>{{ job.detected_table_type or '—' }}</div>
+    <div><strong>Тип</strong><br>{{ 'AI-сессия' if job.job_kind == 'assistant' else 'Конвертация' }}</div>
+    <div><strong>Текущий этап</strong><br>{{ stage_labels.get(job.stage, job.stage or '—') }}</div>
+    <div><strong>Режим</strong><br>{{ job.execution_mode or '—' }}</div>
   </div>
+
+  {% if job.original_instruction or job.improved_instruction %}
+    <section class="section-band">
+      <h2>Инструкция</h2>
+      <div class="compare-grid" style="margin-top:14px;">
+        <div class="compare-card"><h4>Что написал пользователь</h4><div class="prompt-preview">{{ job.original_instruction or '—' }}</div></div>
+        <div class="compare-card improved"><h4>Уточнённая инструкция</h4><div class="prompt-preview">{{ job.improved_instruction or 'Ещё не сформирована' }}</div></div>
+      </div>
+    </section>
+  {% endif %}
+
+  {% if assistant_state.analysis_summary %}
+    <section class="panel">
+      <h3>Как распознан исходный файл</h3>
+      <div class="stats-grid">
+        <div><strong>Лист</strong><br>{{ assistant_state.analysis_summary.selected_sheet or job.selected_sheet or 'Первый лист' }}</div>
+        <div><strong>Заголовки</strong><br>{{ assistant_state.analysis_summary.header_rows_human or '—' }}</div>
+        <div><strong>Начало данных</strong><br>{{ assistant_state.analysis_summary.data_start_row_human or '—' }}</div>
+        <div><strong>Тип таблицы</strong><br>{{ assistant_state.analysis_summary.table_type or '—' }}</div>
+      </div>
+    </section>
+  {% endif %}
+
+  {% if source_workbook_preview %}
+    <section class="section-band">
+      <h2>Исходный файл</h2>
+      <p class="meta">Предпросмотр сохранённой рабочей сессии.</p>
+      {% set workbook_preview = source_workbook_preview %}
+      {% include "_workbook_preview.html" %}
+    </section>
+  {% elif source_preview_error %}
+    <div class="warning-box">{{ source_preview_error }}</div>
+  {% endif %}
+
+  {% if job.status == 'success' %}
+    <section class="section-band">
+      <h2>Отчёт качества</h2>
+      <div class="quality-grid" style="margin-top:14px;">
+        <div class="metric"><strong>Строки</strong><br>{{ quality_report.rows_input if quality_report.rows_input is not none else '—' }} → {{ quality_report.rows_output if quality_report.rows_output is not none else '—' }}</div>
+        <div class="metric"><strong>Колонки</strong><br>{{ quality_report.columns_input if quality_report.columns_input is not none else '—' }} → {{ quality_report.columns_output if quality_report.columns_output is not none else '—' }}</div>
+        <div class="metric"><strong>Пустые ячейки</strong><br>{{ quality_report.empty_cells_before if quality_report.empty_cells_before is not none else '—' }} → {{ quality_report.empty_cells_after if quality_report.empty_cells_after is not none else '—' }}</div>
+        <div class="metric"><strong>Статус качества</strong><br><span class="badge {% if quality_report.quality_status == 'success' %}ok{% else %}warn{% endif %}">{{ quality_report.quality_status or '—' }}</span></div>
+      </div>
+    </section>
+    <div class="grid-2">
+      <section class="panel"><h3>Применённые операции</h3>{% if job.applied_operations %}<ul>{% for item in job.applied_operations %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}<p class="meta">Операции не зафиксированы.</p>{% endif %}</section>
+      <section class="panel"><h3>Предупреждения</h3>{% if job.warnings %}<ul>{% for item in job.warnings %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}<p class="meta">Предупреждений нет.</p>{% endif %}</section>
+    </div>
+  {% endif %}
+
+  {% if job.errors %}
+    <section class="panel"><h3>Ошибки</h3><div class="diagnostics-list">
+      {% for item in job.errors %}<div class="diagnostic-item error"><strong>{% if item is mapping %}{{ item.code }}{% else %}CONVERSION_FAILED{% endif %}</strong><p>{% if item is mapping %}{{ item.error }}{% else %}{{ item }}{% endif %}</p>{% if item is mapping and item.details %}<p class="meta">{{ item.details }}</p>{% endif %}</div>{% endfor %}
+    </div></section>
+  {% endif %}
 
   <section class="section-band">
-    <h2>Отчёт качества</h2>
-    <div class="quality-grid" style="margin-top:14px;">
-      <div class="metric"><strong>Строки</strong><br>{{ quality_report.rows_input if quality_report.rows_input is not none else '—' }} → {{ quality_report.rows_output if quality_report.rows_output is not none else '—' }}</div>
-      <div class="metric"><strong>Колонки</strong><br>{{ quality_report.columns_input if quality_report.columns_input is not none else '—' }} → {{ quality_report.columns_output if quality_report.columns_output is not none else '—' }}</div>
-      <div class="metric"><strong>Пустые ячейки</strong><br>{{ quality_report.empty_cells_before if quality_report.empty_cells_before is not none else '—' }} → {{ quality_report.empty_cells_after if quality_report.empty_cells_after is not none else '—' }}</div>
-      <div class="metric"><strong>Статус качества</strong><br><span class="badge {% if quality_report.quality_status == 'success' %}ok{% else %}warn{% endif %}">{{ quality_report.quality_status or '—' }}</span></div>
-    </div>
+    <h2>Результат</h2>
+    {% if job.status in ['created', 'queued', 'processing'] %}
+      <div class="hint-box">
+        <strong>Таблица ещё обрабатывается.</strong>
+        <p>Итоговый файл и его предпросмотр появятся здесь только после успешного завершения задачи. Исходная таблица не используется как подмена результата.</p>
+      </div>
+    {% elif job.status == 'requires_review' and draft_workbook_preview %}
+      <p class="meta">Это предварительный результат AI-помощника. Он ещё не является сохранённым итоговым Excel-файлом.</p>
+      {% set workbook_preview = draft_workbook_preview %}
+      {% include "_workbook_preview.html" %}
+      <div class="hint-box" style="margin-top:12px;">
+        <strong>Нужна проверка пользователя.</strong>
+        <p>Продолжите работу в AI-помощнике, при необходимости измените инструкцию и только после подтверждения запустите финальную конвертацию.</p>
+      </div>
+    {% elif job.status == 'success' and result_workbook_preview %}
+      <p class="meta">Это итоговая таблица из того же файла, который доступен для скачивания.</p>
+      {% set workbook_preview = result_workbook_preview %}
+      {% include "_workbook_preview.html" %}
+    {% elif job.status == 'success' and result_preview_error %}
+      <div class="warning-box">{{ result_preview_error }}</div>
+    {% elif job.status in ['failed', 'cancelled'] %}
+      <div class="warning-box">
+        <strong>Итоговый файл не создан.</strong>
+        <p>Исходный файл, инструкция и история этапов сохранены. Можно изменить инструкцию и запустить новую задачу.</p>
+      </div>
+    {% else %}
+      <div class="hint-box">Результат пока отсутствует.</div>
+    {% endif %}
   </section>
 
-  <div class="grid-2">
-    <section class="panel"><h3>Применённые операции</h3>{% if job.applied_operations %}<ul>{% for item in job.applied_operations %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}<p class="meta">Операции не зафиксированы.</p>{% endif %}</section>
-    <section class="panel"><h3>Предупреждения</h3>{% if job.warnings %}<ul>{% for item in job.warnings %}<li>{{ item }}</li>{% endfor %}</ul>{% else %}<p class="meta">Предупреждений нет.</p>{% endif %}</section>
+  {% if events %}
+    <section class="panel">
+      <h3>Хронология</h3>
+      <ol class="job-timeline">
+        {% for event in events %}<li><strong>{{ stage_labels.get(event.stage, event.stage or event.event_type) }}</strong><span>{{ event.created_at }}</span>{% if event.message %}<p>{{ event.message }}</p>{% endif %}</li>{% endfor %}
+      </ol>
+    </section>
+  {% endif %}
+
+  <div class="button-row">
+    {% if job.job_kind == 'assistant' and job.status in ['created', 'requires_review', 'failed', 'cancelled'] %}<a class="action-link" href="{{ url_for('web.instruction_assistant', job_id=job.job_id) }}">Продолжить в AI-помощнике</a>{% endif %}
+    {% if output_available and output_filename %}<a class="action-link" href="{{ url_for('web.download', filename=output_filename) }}">Скачать результат</a>{% endif %}
+    {% if input_available and job.status in ['success', 'failed', 'cancelled'] %}
+      <form class="inline-form" method="post" action="{{ url_for('web.edit_job', job_id=job.job_id) }}">
+        <button class="secondary" type="submit">Изменить и обработать заново</button>
+      </form>
+    {% endif %}
+    {% if job.status in ['failed', 'cancelled'] %}<form class="inline-form" method="post" action="{{ url_for('web.retry_job', job_id=job.job_id) }}"><button class="secondary" type="submit">Повторить без изменений</button></form>{% endif %}
+    <a class="action-link secondary" href="{{ url_for('web.jobs_list') }}">К списку задач</a>
   </div>
 
-  {% if job.errors %}<section class="panel"><h3>Ошибки</h3><div class="diagnostics-list">{% for item in job.errors %}<div class="diagnostic-item error"><strong>{% if item is mapping %}{{ item.code }}{% else %}CONVERSION_FAILED{% endif %}</strong><p>{% if item is mapping %}{{ item.error }}{% else %}{{ item }}{% endif %}</p>{% if item is mapping and item.details %}<p class="meta">{{ item.details }}</p>{% endif %}</div>{% endfor %}</div></section>{% endif %}
+  <style>
+    .job-timeline { list-style:none; padding:0; margin:0; display:grid; gap:10px; }
+    .job-timeline li { position:relative; padding:10px 12px 10px 18px; border-left:3px solid #b7dce0; background:#f8fafb; border-radius:0 7px 7px 0; }
+    .job-timeline li > span { float:right; color:var(--muted); font-size:11px; }
+    .job-timeline p { margin:5px 0 0; color:var(--muted); font-size:12px; }
+  </style>
 
-  {% if preview %}
-    <section class="section-band"><h2>Предпросмотр результата</h2><p class="meta">Первые {{ preview.shown_rows }} строк.</p><div class="preview-table-wrapper"><table class="preview-table"><thead><tr>{% for col in preview.columns %}<th>{{ col }}</th>{% endfor %}</tr></thead><tbody>{% for row in preview.rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></section>
-  {% elif preview_error %}<div class="warning-box">{{ preview_error }}</div>{% endif %}
-
-  <div class="button-row">{% if output_filename %}<a class="action-link" href="{{ url_for('web.download', filename=output_filename) }}">Скачать результат</a>{% endif %}<a class="action-link secondary" href="{{ url_for('web.jobs_list') }}">К списку задач</a><a class="action-link secondary" href="{{ url_for('web.index') }}">Загрузить другой файл</a></div>
+  {% if job.status in ['created', 'queued', 'processing'] %}
+    <script>
+      (() => {
+        const terminal = new Set(['success', 'failed', 'cancelled', 'requires_review']);
+        const statusLabels = {created:'Черновик',queued:'В очереди',processing:'Выполняется',requires_review:'Можно продолжить',success:'Готово',failed:'Ошибка',cancelled:'Остановлена'};
+        const poll = async () => {
+          try {
+            const response = await fetch({{ url_for('api.get_job', job_id=job.job_id)|tojson }}, {headers:{'Accept':'application/json'}});
+            if (!response.ok) return;
+            const data = await response.json();
+            const progress = Number(data.progress || 0);
+            const fill = document.getElementById('job-progress-fill');
+            const value = document.getElementById('job-progress-value');
+            const stage = document.getElementById('job-stage');
+            const status = document.getElementById('job-status');
+            if (fill) fill.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+            if (value) value.textContent = `${progress}%`;
+            if (stage) stage.textContent = data.stage || data.status;
+            if (status) { status.textContent = statusLabels[data.status] || data.status; status.className = `status status-${data.status}`; }
+            if (terminal.has(data.status)) { window.location.reload(); return; }
+          } catch (_error) {}
+          window.setTimeout(poll, 2000);
+        };
+        window.setTimeout(poll, 1000);
+      })();
+    </script>
+  {% endif %}
 {% endblock %}

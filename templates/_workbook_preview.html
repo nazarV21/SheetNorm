@@ -1,0 +1,51 @@
+{% if workbook_preview and workbook_preview.sheets %}
+  <div class="workbook-preview" data-workbook-preview>
+    <div class="workbook-window-bar">
+      <div class="workbook-file-mark">▦</div>
+      <div class="workbook-file-name">{{ workbook_preview.filename or 'Excel preview' }}</div>
+      <div class="workbook-window-meta">{{ workbook_preview.sheet_count }} лист(а)</div>
+    </div>
+    <div class="workbook-sheet-stage">
+      {% for sheet in workbook_preview.sheets %}
+        <section class="workbook-sheet-panel" data-sheet-panel="{{ loop.index0 }}" {% if not loop.first %}hidden{% endif %}>
+          {% if sheet.is_limited %}
+            <div class="workbook-limit-note">
+              Показано {{ sheet.shown_rows }} из {{ sheet.total_rows }} строк и {{ sheet.shown_columns }} из {{ sheet.total_columns }} колонок.
+            </div>
+          {% endif %}
+          {% if sheet.rows and sheet.columns %}
+          <div class="workbook-grid-scroll">
+            <table class="workbook-grid-table" data-column-count="{{ sheet.columns|length }}">
+              <thead>
+                <tr>
+                  <th class="workbook-corner"></th>
+                  {% for column in sheet.columns %}<th class="workbook-column-letter" data-column-index="{{ loop.index0 }}">{{ column }}</th>{% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in sheet.rows %}
+                  <tr class="workbook-row workbook-row-{{ row.role }}">
+                    <th class="workbook-row-number">{{ row.number }}</th>
+                    {% for cell in row.cells %}
+                      <td data-column-index="{{ loop.index0 }}" class="{% if not cell %}workbook-empty-cell{% endif %}" title="{{ cell }}">{{ cell }}</td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+            <div class="workbook-empty-sheet">На листе нет ячеек с данными для предпросмотра.</div>
+          {% endif %}
+        </section>
+      {% endfor %}
+    </div>
+    <div class="workbook-tabs" role="tablist" aria-label="Листы Excel">
+      {% for sheet in workbook_preview.sheets %}
+        <button type="button" class="workbook-tab {% if loop.first %}active{% endif %}" data-sheet-tab="{{ loop.index0 }}" role="tab" aria-selected="{{ 'true' if loop.first else 'false' }}">
+          {{ sheet.name }}
+        </button>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}

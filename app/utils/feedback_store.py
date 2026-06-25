@@ -171,6 +171,7 @@ class FeedbackStore:
         user_text: str | None,
         fingerprint: dict[str, Any] | None,
         limit: int = 5,
+        require_text_overlap: bool = False,
     ) -> list[dict[str, Any]]:
         """Найти похожие прошлые исправления для текущей таблицы/инструкции."""
         text_tokens = self._tokens(user_text or "")
@@ -199,11 +200,14 @@ class FeedbackStore:
                 " ".join(str(c) for c in (item.get("preview_columns") or item.get("corrected_columns") or [])),
             ])
             item_tokens = self._tokens(text_for_tokens)
-            if text_tokens and item_tokens:
-                score += len(text_tokens & item_tokens)
+            text_overlap = len(text_tokens & item_tokens) if text_tokens and item_tokens else 0
+            if require_text_overlap and text_overlap < 2:
+                continue
+            score += text_overlap
             if score > 0:
                 copy = dict(item)
                 copy["similarity_score"] = score
+                copy["text_overlap"] = text_overlap
                 scored.append((score, copy))
         scored.sort(key=lambda pair: pair[0], reverse=True)
         return [item for _, item in scored[:limit]]

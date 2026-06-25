@@ -52,10 +52,22 @@ def test_upload_rejects_non_excel(client):
 
 
 def test_main_pages_render(client):
-    for path in ("/", "/convert", "/assistant", "/rules", "/training", "/jobs", "/history", "/about", "/deployment", "/settings"):
+    for path in ("/", "/convert", "/assistant", "/rules", "/training", "/jobs", "/settings"):
         response = client.get(path)
         assert response.status_code == 200, path
         assert "SheetNorm" in response.get_data(as_text=True), path
+
+
+def test_removed_marketing_pages_redirect_to_workspace(client):
+    redirects = {
+        "/history": "/jobs",
+        "/about": "/convert",
+        "/deployment": "/convert",
+    }
+    for path, expected_target in redirects.items():
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 302, path
+        assert response.headers["Location"].endswith(expected_target), path
 
 
 def test_local_sqlite_database_is_initialized_for_dev(tmp_path):
@@ -129,7 +141,7 @@ def test_llm_prompt_is_compacted_to_context_window(app):
     assert max_tokens >= 128
 
 
-def test_assistant_fallback_builds_preview(client):
+def test_assistant_fallback_builds_preview_and_can_resume(client):
     response = client.post(
         "/assistant",
         data={
@@ -137,25 +149,43 @@ def test_assistant_fallback_builds_preview(client):
             "raw_prompt": "Заголовки на строке 1, данные начинаются со строки 2.",
         },
         content_type="multipart/form-data",
+        follow_redirects=False,
     )
-    page = response.get_data(as_text=True)
-    assert response.status_code == 200
-    assert "Предпросмотр итоговой таблицы" in page
-    assert "Код" in page and "Сумма" in page
+    assert response.status_code == 302
+    assert "/jobs/" in response.headers["Location"]
+
+    detail = client.get(response.headers["Location"])
+    detail_page = detail.get_data(as_text=True)
+    assert detail.status_code == 200
+    assert "Это предварительный результат AI-помощника" in detail_page
+    assert "Код" in detail_page and "Сумма" in detail_page
+    assert "Продолжить в AI-помощнике" in detail_page
+
+    job_id = response.headers["Location"].rstrip("/").split("/")[-1]
+    resumed = client.get(f"/assistant?job_id={job_id}")
+    resumed_page = resumed.get_data(as_text=True)
+    assert resumed.status_code == 200
+    assert "Предпросмотр итоговой таблицы" in resumed_page
+    assert "Заголовки на строке 1" in resumed_page
 
 
 def test_assistant_without_prompt_only_analyzes_source(client, monkeypatch):
     def fail_preview(*_args, **_kwargs):
         raise AssertionError("assistant must not build result preview without a user instruction")
 
-    monkeypatch.setattr("app.routes.web._preview_for_assistant", fail_preview)
+    monkeypatch.setattr(
+        "app.services.conversion_service.ConversionService.preview_workbook_with_instruction",
+        fail_preview,
+    )
     response = client.post(
         "/assistant",
         data={"file": (simple_workbook(), "source-only.xlsx"), "raw_prompt": ""},
         content_type="multipart/form-data",
+        follow_redirects=False,
     )
-    page = response.get_data(as_text=True)
-    assert response.status_code == 200
+    assert response.status_code == 302
+    job_id = response.headers["Location"].rstrip("/").split("/")[-1]
+    page = client.get(f"/assistant?job_id={job_id}").get_data(as_text=True)
     assert "Итоговый предпросмотр ещё не строился" in page
     assert "Возможные уточнения" in page
 
@@ -201,3 +231,54 @@ def test_assistant_api_reports_fallback_mode(client):
     assert response.status_code == 200
     warnings = response.get_json()["warnings"]
     assert warnings[0]["code"] == "LLM_UNAVAILABLE_FALLBACK_USED"
+
+
+def test_workspace_navigation_uses_product_brand_and_hides_marketing_pages(client):
+    response = client.get("/")
+    page = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "sheetnorm-mark.svg" in page
+    assert "by FormaOps" in page
+    assert ">Конвертация<" in page
+    assert ">AI-помощник<" in page
+    assert ">Задачи<" in page
+    assert ">Главная<" not in page
+    assert ">Внедрение<" not in page
+    assert ">О продукте<" not in page
+    assert ">История<" not in page
+
+
+def test_assistant_draft_autosave_is_visible_in_tasks(client):
+    preview = client.post(
+        "/api/assistant/file-preview",
+        data={
+            "file": (simple_workbook(), "draft.xlsx"),
+            "raw_prompt": "Разделить данные по коду",
+        },
+        content_type="multipart/form-data",
+    )
+    assert preview.status_code == 200
+    job_id = preview.get_json()["job_id"]
+
+    saved = client.post(
+        f"/api/jobs/{job_id}/assistant-state",
+        json={
+            "raw_prompt": "Разделить данные по коду и создать отдельные листы",
+            "sheet_name": "Данные",
+            "current_step": 3,
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.get_json()["assistant_state"]["current_step"] == 3
+
+    detail = client.get(f"/jobs/{job_id}")
+    detail_page = detail.get_data(as_text=True)
+    assert detail.status_code == 200
+    assert "Разделить данные по коду и создать отдельные листы" in detail_page
+    assert "Продолжить в AI-помощнике" in detail_page
+
+    resumed = client.get(f"/assistant?job_id={job_id}")
+    resumed_page = resumed.get_data(as_text=True)
+    assert resumed.status_code == 200
+    assert "Разделить данные по коду и создать отдельные листы" in resumed_page
+    assert 'id="assistant-current-step" value="3"' in resumed_page

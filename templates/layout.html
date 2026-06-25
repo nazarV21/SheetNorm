@@ -4,7 +4,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="SheetNorm — локальная подготовка сложных Excel-отчётов к загрузке в аналитические системы.">
-    <title>{% block title %}SheetNorm{% endblock %}</title>
+    <meta name="theme-color" content="#087e8b">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32x32.png') }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='favicon-16x16.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
+    <title>{% block title %}SheetNorm{% endblock %} · by FormaOps</title>
     <style>
       :root {
         --ink: #14212b;
@@ -24,6 +31,7 @@
       html { min-width: 320px; }
       body {
         margin: 0;
+        overflow-x: hidden;
         min-height: 100vh;
         background: #eef2f4;
         color: var(--ink);
@@ -37,20 +45,26 @@
       .topbar-inner { max-width: 1380px; min-height: 64px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
       .brand { display: flex; align-items: center; gap: 11px; color: #fff; min-width: 0; }
       .brand:hover { text-decoration: none; }
-      .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 7px; background: #fff; color: var(--nav); font-weight: 800; font-size: 12px; }
+      .brand-mark { width:34px; height:34px; display:block; flex:0 0 auto; border-radius:8px; box-shadow:0 5px 14px rgba(0,0,0,.16); }
       .brand-name { display: block; font-size: 18px; font-weight: 700; line-height: 1.1; }
       .brand-tagline { display: block; color: #c7d6df; font-size: 11px; margin-top: 3px; }
       .privacy-state { display: flex; align-items: center; gap: 8px; color: #d8e8ee; font-size: 12px; white-space: nowrap; }
       .privacy-dot { width: 8px; height: 8px; border-radius: 50%; background: #47c98b; }
       .app-shell { max-width: 1380px; margin: 0 auto; padding: 22px 24px 48px; display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 22px; }
       .sidebar { align-self: start; position: sticky; top: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+      .sidebar-brand { display:flex; align-items:center; gap:10px; padding:8px 8px 12px; margin-bottom:7px; border-bottom:1px solid var(--line); color:var(--ink); }
+      .sidebar-brand:hover { text-decoration:none; }
+      .sidebar-brand-mark { width:36px; height:36px; display:block; flex:0 0 auto; border-radius:9px; box-shadow:0 7px 18px rgba(8,126,139,.2); }
+      .sidebar-brand-name { display:block; font-size:15px; line-height:1.1; font-weight:800; color:#17313f; }
+      .sidebar-brand-by { display:block; margin-top:3px; color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.02em; }
       .sidebar-title { padding: 7px 9px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
       .nav-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
       .nav-item a { display: flex; align-items: center; min-height: 38px; padding: 8px 10px; border-radius: 6px; color: #334955; font-weight: 600; }
       .nav-item a:hover { background: #edf3f5; text-decoration: none; }
       .nav-item a.active { background: #dfecef; color: #075e68; box-shadow: inset 3px 0 var(--accent); }
       .nav-divider { height: 1px; background: var(--line); margin: 8px 4px; }
-      .content { min-width: 0; }
+      .content { min-width: 0; max-width: 100%; }
+      .content > * { min-width: 0; max-width: 100%; }
       .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
       .page-header h1, h2 { margin: 0; font-size: 24px; line-height: 1.25; font-weight: 700; }
       h3 { margin: 24px 0 10px; font-size: 17px; line-height: 1.35; }
@@ -88,6 +102,11 @@
       .danger-btn:hover { background: #fff0ef; border-color: var(--danger); }
       button[disabled] { opacity: .55; cursor: not-allowed; }
       .button-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+      .inline-form { display:inline-flex; margin:0; }
+      .progress-track { width:100%; height:9px; overflow:hidden; border-radius:999px; background:#dfe7eb; }
+      .progress-fill { height:100%; border-radius:inherit; background:var(--accent); transition:width .25s ease; }
+      .job-progress { display:grid; gap:7px; margin:12px 0; }
+      .job-progress-meta { display:flex; justify-content:space-between; gap:12px; color:var(--muted); font-size:12px; }
       .file-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
       .file-label { position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-height: 40px; padding: 8px 14px; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
       .file-label input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
@@ -108,6 +127,7 @@
       .status { display: inline-flex; align-items: center; min-height: 25px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
       .status-created, .status-queued { background: #edf2f4; color: #40545f; }
       .status-processing { background: #e8f2ff; color: #175c9e; }
+      .status-requires_review { background: #fff8e4; color: #765000; }
       .status-success { background: #dff3e9; color: #12613f; }
       .status-failed { background: #fff0ef; color: #8f1f16; }
       .status-cancelled { background: #f1eafa; color: #6941a5; }
@@ -127,13 +147,21 @@
       .msg.info { border-color: #a8d4d8; background: #eaf5f5; color: #075e68; }
       .msg.success { border-color: #a7d8c2; background: #e9f7f0; color: #12613f; }
       .msg.warning { border-color: #e8c877; background: #fff8e4; color: #6e4d00; }
-      .history-table-wrapper, .preview-table-wrapper { width: 100%; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+      .history-table-wrapper, .preview-table-wrapper { width: 100%; max-width: 100%; overflow-x: hidden; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
       .history-table-wrapper { max-height: 520px; }
       .preview-table-wrapper { max-height: 560px; margin-top: 10px; }
-      .history-table, .preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-      .history-table th, .history-table td, .preview-table th, .preview-table td { padding: 8px 9px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; white-space: nowrap; }
+      .history-table, .preview-table { width: 100%; max-width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+      .history-table th, .history-table td, .preview-table th, .preview-table td { min-width: 0; padding: 8px 9px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
       .history-table th, .preview-table th { position: sticky; top: 0; z-index: 2; background: #edf2f4; color: #334955; }
       .history-table tbody tr:nth-child(even) { background: #f8fafb; }
+      .responsive-record-list { display: grid; gap: 12px; }
+      .responsive-record { min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: #fff; box-shadow: 0 3px 10px rgba(24,59,86,.05); }
+      .responsive-record-head { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+      .responsive-record-title { min-width: 0; flex: 1 1 280px; }
+      .responsive-record-title strong { display: block; overflow-wrap: anywhere; }
+      .responsive-record-meta { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin-top: 12px; }
+      .responsive-record-meta > div { min-width: 0; padding: 9px 10px; border-radius: 7px; background: #f5f8f9; overflow-wrap: anywhere; }
+      .responsive-record-meta small { display: block; margin-bottom: 3px; color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .02em; }
       .preview-table .row-number, .preview-table .row-role { position: sticky; left: 0; z-index: 1; background: inherit; font-weight: 700; }
       .preview-table .row-role { left: 44px; min-width: 115px; }
       .preview-row.service { background: #f4f6f7; color: #62727c; }
@@ -152,13 +180,53 @@
       .diagnostic-item.warning { border-color: #e8c877; background: #fff8e4; }
       .diagnostic-item.info { border-color: #a8d4d8; background: #eaf5f5; }
       .quality-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+
+      .workbook-preview { margin-top: 12px; overflow: hidden; border: 1px solid #cbd5dc; border-radius: 16px; background: #fff; box-shadow: 0 14px 34px rgba(24,59,86,.10); }
+      .workbook-window-bar { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 9px 14px; background: #172026; color: #fff; }
+      .workbook-file-mark { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; background: #16a34a; font-weight: 900; }
+      .workbook-file-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800; }
+      .workbook-window-meta { color: #b7c3ca; font-size: 11px; white-space: nowrap; }
+      .workbook-sheet-stage { background: #fff; }
+      .workbook-sheet-panel[hidden] { display: none; }
+      .workbook-limit-note { padding: 7px 12px; border-bottom: 1px solid #d7dee3; background: #fff8e4; color: #6e4d00; font-size: 11px; }
+      .workbook-column-toolbar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; min-height: 42px; padding: 7px 10px; border-bottom: 1px solid #d7dee3; background: #f7f9fa; }
+      .workbook-column-toolbar[hidden] { display: none; }
+      .workbook-column-nav { min-height: 30px; padding: 4px 10px; border-color: #aebcc4; background: #fff; color: #334955; font-size: 12px; }
+      .workbook-column-nav:hover { background: #edf2f4; border-color: #8798a2; }
+      .workbook-column-range { min-width: 150px; color: #53636d; text-align: center; font-size: 11px; font-weight: 700; }
+      .workbook-grid-scroll { max-height: 520px; max-width: 100%; overflow-x: hidden; overflow-y: auto; }
+      .workbook-empty-sheet { padding: 28px 18px; color: #64727b; text-align: center; background: #f8fafb; }
+      .workbook-grid-table { width: 100%; max-width: 100%; min-width: 0; border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 12px; color: #1f2933; }
+      .workbook-grid-table th, .workbook-grid-table td { min-width: 0; max-width: none; min-height: 31px; padding: 6px 8px; border-right: 1px solid #d7dee3; border-bottom: 1px solid #d7dee3; overflow-wrap: anywhere; word-break: break-word; white-space: normal; line-height: 1.25; background: #fff; }
+      .workbook-grid-table thead th { position: sticky; top: 0; z-index: 3; height: 25px; padding: 3px 7px; background: #eef1f3; color: #5d6b74; text-align: center; font-size: 10px; font-weight: 700; }
+      .workbook-grid-table .workbook-corner { position: sticky; left: 0; z-index: 5; width: 42px; min-width: 42px; max-width: 42px; background: #e4e9ec; }
+      .workbook-grid-table .workbook-row-number { position: sticky; left: 0; z-index: 2; width: 42px; min-width: 42px; max-width: 42px; padding-inline: 5px; background: #eef1f3; color: #64727b; text-align: center; font-size: 10px; font-weight: 600; }
+      .workbook-grid-table [hidden] { display: none; }
+      .workbook-row-header td { background: #eaf2ff; font-weight: 800; }
+      .workbook-row-total td { background: #fff7d6; font-weight: 800; }
+      .workbook-empty-cell { color: #c7d0d6; }
+      .workbook-tabs { display: flex; flex-wrap: wrap; gap: 0; overflow: hidden; padding: 0 10px; border-top: 1px solid #cbd5dc; background: #4b4f52; }
+      .workbook-tab { flex: 0 1 auto; max-width: 100%; min-height: 38px; padding: 8px 14px; border: 0; border-radius: 0; background: transparent; color: #fff; font-size: 11px; font-weight: 700; white-space: normal; overflow-wrap: anywhere; box-shadow: none; }
+      .workbook-tab:hover { background: rgba(255,255,255,.08); transform: none; }
+      .workbook-tab.active { background: #fff; color: #26323a; box-shadow: inset 0 3px #18a999; }
+      .batch-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+      .batch-summary-grid > div { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #f8fafb; }
+      .upload-mode-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+      .upload-mode-tab { background: #edf2f4; color: #334955; }
+      .upload-mode-tab.active { background: var(--accent); color: #fff; }
+      .selected-files-list { display: grid; gap: 6px; margin-top: 10px; }
+      .selected-file-item { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: #fff; font-size: 12px; }
+      .assistant-live-preview[hidden], .assistant-preview-loading[hidden] { display: none; }
+      .prompt-tips { display: grid; gap: 8px; margin-top: 12px; }
+      .prompt-tip { display: flex; gap: 8px; align-items: flex-start; padding: 9px 11px; border: 1px solid #b7dce0; border-radius: 8px; background: #eef9fa; }
+      .prompt-tip button { flex: 0 0 auto; min-height: 28px; padding: 4px 9px; font-size: 10px; }
       code { padding: 1px 4px; border-radius: 4px; background: #edf2f4; color: #283d49; overflow-wrap: anywhere; }
       details { margin: 12px 0; }
       summary { cursor: pointer; font-weight: 700; }
       .footer { max-width: 1380px; margin: 0 auto; padding: 0 24px 30px; color: #74838c; font-size: 12px; }
       @media (max-width: 980px) {
         .app-shell { grid-template-columns: 190px minmax(0, 1fr); padding-inline: 16px; gap: 16px; }
-        .grid-4, .stats-grid, .quality-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .grid-4, .stats-grid, .quality-grid, .batch-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .workflow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .stepper { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       }
@@ -166,17 +234,17 @@
         .topbar-inner { min-height: 58px; padding: 9px 14px; }
         .brand-tagline, .privacy-state { display: none; }
         .app-shell { display: block; padding: 12px 12px 36px; }
-        .sidebar { position: static; margin-bottom: 14px; padding: 7px; overflow-x: auto; }
-        .sidebar-title, .nav-divider { display: none; }
-        .nav-list { display: flex; width: max-content; gap: 4px; }
+        .sidebar { position: static; margin-bottom: 14px; padding: 7px; overflow: visible; }
+        .sidebar-brand, .sidebar-title, .nav-divider { display: none; }
+        .nav-list { display: flex; width: 100%; flex-wrap: wrap; gap: 4px; }
         .nav-item a { min-height: 34px; padding: 7px 9px; white-space: nowrap; font-size: 12px; }
         .nav-item a.active { box-shadow: inset 0 -3px var(--accent); }
         .page-header { display: block; }
         .page-header h1, h2 { font-size: 21px; }
-        .grid-2, .grid-3, .grid-4, .mode-grid, .understanding-grid, .compare-grid, .stats-grid, .quality-grid { grid-template-columns: 1fr; }
+        .grid-2, .grid-3, .grid-4, .mode-grid, .understanding-grid, .compare-grid, .stats-grid, .quality-grid, .batch-summary-grid { grid-template-columns: 1fr; }
         .workflow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .stepper { display: flex; overflow-x: auto; padding-bottom: 4px; }
-        .step { min-width: 128px; }
+        .stepper { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding-bottom: 0; }
+        .step { min-width: 0; }
         .filter-bar { grid-template-columns: 1fr; }
         .rule-card-head { display: block; }
         .rule-card-head .button-row { margin-top: 12px; }
@@ -185,8 +253,20 @@
         .file-name { width: 100%; white-space: normal; overflow-wrap: anywhere; }
         button, .action-link { max-width: 100%; white-space: normal; text-align: center; }
       }
+      @media (max-width: 900px) {
+        .responsive-record-meta { grid-template-columns: repeat(2, minmax(0,1fr)); }
+        .responsive-table { display: block; }
+        .responsive-table thead { display: none; }
+        .responsive-table tbody, .responsive-table tr, .responsive-table td { display: block; width: 100%; }
+        .responsive-table tr { margin: 10px; width: calc(100% - 20px); overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+        .responsive-table td { display: grid; grid-template-columns: minmax(105px, .45fr) minmax(0, 1fr); gap: 10px; border-bottom: 1px solid var(--line); }
+        .responsive-table td:last-child { border-bottom: 0; }
+        .responsive-table td::before { content: attr(data-label); color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+      }
       @media (max-width: 420px) {
         .workflow { grid-template-columns: 1fr; }
+        .responsive-record-meta { grid-template-columns: 1fr; }
+        .workbook-column-range { min-width: 112px; }
         .button-row > * { width: 100%; }
       }
     </style>
@@ -194,11 +274,11 @@
   <body>
     <header class="topbar">
       <div class="topbar-inner">
-        <a class="brand" href="{{ url_for('web.dashboard') }}">
-          <span class="brand-mark">SN</span>
+        <a class="brand" href="{{ url_for('web.index') }}">
+          <img class="brand-mark" src="{{ url_for('static', filename='sheetnorm-mark.svg') }}" alt="">
           <span>
             <span class="brand-name">SheetNorm</span>
-            <span class="brand-tagline">Превращает сложные Excel-отчёты в готовые данные для аналитики</span>
+            <span class="brand-tagline">by FormaOps · локальная нормализация Excel</span>
           </span>
         </a>
         <span class="privacy-state"><span class="privacy-dot"></span>Локальная обработка данных</span>
@@ -206,17 +286,17 @@
     </header>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Основная навигация">
+        <a class="sidebar-brand" href="{{ url_for('web.index') }}" aria-label="SheetNorm — Конвертация">
+          <img class="sidebar-brand-mark" src="{{ url_for('static', filename='sheetnorm-mark.svg') }}" alt="">
+          <span><span class="sidebar-brand-name">SheetNorm</span><span class="sidebar-brand-by">by FormaOps</span></span>
+        </a>
         <div class="sidebar-title">Рабочее пространство</div>
         <ul class="nav-list">
-          <li class="nav-item"><a href="{{ url_for('web.dashboard') }}" class="{% if request.path == '/' %}active{% endif %}">Главная</a></li>
-          <li class="nav-item"><a href="{{ url_for('web.index') }}" class="{% if request.path.startswith('/convert') %}active{% endif %}">Конвертация</a></li>
+          <li class="nav-item"><a href="{{ url_for('web.index') }}" class="{% if request.path == '/' or request.path.startswith('/convert') or request.path.startswith('/batches') %}active{% endif %}">Конвертация</a></li>
           <li class="nav-item"><a href="{{ url_for('web.instruction_assistant') }}" class="{% if request.path.startswith('/assistant') %}active{% endif %}">AI-помощник</a></li>
           <li class="nav-item"><a href="{{ url_for('web.rules_list') }}" class="{% if request.path.startswith('/rules') %}active{% endif %}">Шаблоны</a></li>
-          <li class="nav-item"><a href="{{ url_for('web.training') }}" class="{% if request.path.startswith('/training') %}active{% endif %}">Обучающие примеры</a></li>
           <li class="nav-item"><a href="{{ url_for('web.jobs_list') }}" class="{% if request.path.startswith('/jobs') %}active{% endif %}">Задачи</a></li>
-          <li class="nav-item"><a href="{{ url_for('web.history') }}" class="{% if request.path.startswith('/history') %}active{% endif %}">История</a></li>
-          <li class="nav-item"><a href="{{ url_for('web.deployment') }}" class="{% if request.path.startswith('/deployment') %}active{% endif %}">Внедрение</a></li>
-          <li class="nav-item"><a href="{{ url_for('web.about') }}" class="{% if request.path.startswith('/about') %}active{% endif %}">О продукте</a></li>
+          <li class="nav-item"><a href="{{ url_for('web.training') }}" class="{% if request.path.startswith('/training') %}active{% endif %}">Обучающие примеры</a></li>
           <li class="nav-divider" aria-hidden="true"></li>
           <li class="nav-item"><a href="{{ url_for('web.settings') }}" class="{% if request.path.startswith('/settings') %}active{% endif %}">Настройки</a></li>
         </ul>
@@ -232,6 +312,242 @@
         {% block content %}{% endblock %}
       </main>
     </div>
-    <footer class="footer">SheetNorm · Flask-приложение для локальной нормализации Excel</footer>
+    <footer class="footer">SheetNorm by FormaOps · локальная нормализация Excel</footer>
+
+    <script>
+      (function () {
+        function preferredColumnCount(panel, totalColumns) {
+          const width = Math.max(280, panel.clientWidth || panel.closest('.workbook-preview')?.clientWidth || 800);
+          if (width >= 1100) return Math.min(totalColumns, 8);
+          if (width >= 850) return Math.min(totalColumns, 6);
+          if (width >= 620) return Math.min(totalColumns, 4);
+          return Math.min(totalColumns, 2);
+        }
+
+        function updateColumnWindow(panel, resetPage = false) {
+          const table = panel?.querySelector('.workbook-grid-table');
+          if (!table) return;
+          const total = Number(table.dataset.columnCount || 0);
+          if (!total) return;
+          const visible = Math.max(1, preferredColumnCount(panel, total));
+          const pageCount = Math.max(1, Math.ceil(total / visible));
+          let page = resetPage ? 0 : Number(panel.dataset.columnPage || 0);
+          page = Math.max(0, Math.min(pageCount - 1, page));
+          panel.dataset.columnPage = String(page);
+          const start = page * visible;
+          const end = Math.min(total, start + visible);
+          panel.querySelectorAll('[data-column-index]').forEach(cell => {
+            const index = Number(cell.dataset.columnIndex);
+            cell.hidden = index < start || index >= end;
+          });
+          const toolbar = panel.querySelector('.workbook-column-toolbar');
+          if (!toolbar) return;
+          toolbar.hidden = total <= visible;
+          const label = toolbar.querySelector('[data-column-range]');
+          if (label) label.textContent = `Столбцы ${start + 1}–${end} из ${total}`;
+          const previous = toolbar.querySelector('[data-columns-previous]');
+          const next = toolbar.querySelector('[data-columns-next]');
+          if (previous) previous.disabled = page <= 0;
+          if (next) next.disabled = page >= pageCount - 1;
+        }
+
+        function ensureColumnPager(panel) {
+          const table = panel?.querySelector('.workbook-grid-table');
+          if (!table || panel.querySelector('.workbook-column-toolbar')) return;
+          const toolbar = document.createElement('div');
+          toolbar.className = 'workbook-column-toolbar';
+          const previous = document.createElement('button');
+          previous.type = 'button';
+          previous.className = 'workbook-column-nav';
+          previous.dataset.columnsPrevious = '';
+          previous.setAttribute('aria-label', 'Показать предыдущие столбцы');
+          previous.textContent = '← Предыдущие';
+          const range = document.createElement('span');
+          range.className = 'workbook-column-range';
+          range.dataset.columnRange = '';
+          const next = document.createElement('button');
+          next.type = 'button';
+          next.className = 'workbook-column-nav';
+          next.dataset.columnsNext = '';
+          next.setAttribute('aria-label', 'Показать следующие столбцы');
+          next.textContent = 'Следующие →';
+          toolbar.append(previous, range, next);
+          const scroll = panel.querySelector('.workbook-grid-scroll');
+          panel.insertBefore(toolbar, scroll);
+          previous.addEventListener('click', () => {
+            panel.dataset.columnPage = String(Math.max(0, Number(panel.dataset.columnPage || 0) - 1));
+            updateColumnWindow(panel);
+          });
+          next.addEventListener('click', () => {
+            panel.dataset.columnPage = String(Number(panel.dataset.columnPage || 0) + 1);
+            updateColumnWindow(panel);
+          });
+        }
+
+        function activateSheet(root, index) {
+          root.querySelectorAll('[data-sheet-panel]').forEach(panel => {
+            const active = panel.dataset.sheetPanel === String(index);
+            panel.hidden = !active;
+            if (active) window.requestAnimationFrame(() => updateColumnWindow(panel));
+          });
+          root.querySelectorAll('[data-sheet-tab]').forEach(tab => {
+            const active = tab.dataset.sheetTab === String(index);
+            tab.classList.toggle('active', active);
+            tab.setAttribute('aria-selected', active ? 'true' : 'false');
+          });
+        }
+
+        function bindWorkbook(root) {
+          if (!root || root.dataset.bound === '1') return;
+          root.dataset.bound = '1';
+          root.querySelectorAll('[data-sheet-panel]').forEach(panel => {
+            ensureColumnPager(panel);
+            updateColumnWindow(panel, true);
+          });
+          root.querySelectorAll('[data-sheet-tab]').forEach(tab => {
+            tab.addEventListener('click', () => activateSheet(root, tab.dataset.sheetTab));
+          });
+          if ('ResizeObserver' in window) {
+            const observer = new ResizeObserver(() => {
+              root.querySelectorAll('[data-sheet-panel]:not([hidden])').forEach(panel => updateColumnWindow(panel));
+            });
+            observer.observe(root);
+          } else {
+            window.addEventListener('resize', () => {
+              root.querySelectorAll('[data-sheet-panel]:not([hidden])').forEach(panel => updateColumnWindow(panel));
+            });
+          }
+        }
+
+        function renderWorkbook(container, workbook) {
+          container.replaceChildren();
+          if (!workbook || !Array.isArray(workbook.sheets) || !workbook.sheets.length) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.textContent = 'В книге нет листов для предпросмотра.';
+            container.appendChild(empty);
+            return;
+          }
+
+          const root = document.createElement('div');
+          root.className = 'workbook-preview';
+          root.dataset.workbookPreview = '';
+
+          const bar = document.createElement('div');
+          bar.className = 'workbook-window-bar';
+          const mark = document.createElement('div');
+          mark.className = 'workbook-file-mark';
+          mark.textContent = '▦';
+          const filename = document.createElement('div');
+          filename.className = 'workbook-file-name';
+          filename.textContent = workbook.filename || 'Excel preview';
+          const meta = document.createElement('div');
+          meta.className = 'workbook-window-meta';
+          meta.textContent = `${workbook.sheets.length} лист(а)`;
+          bar.append(mark, filename, meta);
+          root.appendChild(bar);
+
+          const stage = document.createElement('div');
+          stage.className = 'workbook-sheet-stage';
+          const tabs = document.createElement('div');
+          tabs.className = 'workbook-tabs';
+          tabs.setAttribute('role', 'tablist');
+
+          workbook.sheets.forEach((sheet, index) => {
+            const panel = document.createElement('section');
+            panel.className = 'workbook-sheet-panel';
+            panel.dataset.sheetPanel = String(index);
+            panel.hidden = index !== 0;
+
+            if (sheet.is_limited) {
+              const note = document.createElement('div');
+              note.className = 'workbook-limit-note';
+              note.textContent = `Показано ${sheet.shown_rows} из ${sheet.total_rows} строк и ${sheet.shown_columns} из ${sheet.total_columns} колонок.`;
+              panel.appendChild(note);
+            }
+
+            const hasGridData = Array.isArray(sheet.rows) && sheet.rows.length > 0
+              && Array.isArray(sheet.columns) && sheet.columns.length > 0;
+            if (!hasGridData) {
+              const emptySheet = document.createElement('div');
+              emptySheet.className = 'workbook-empty-sheet';
+              emptySheet.textContent = 'На листе нет ячеек с данными для предпросмотра.';
+              panel.appendChild(emptySheet);
+              stage.appendChild(panel);
+
+              const tab = document.createElement('button');
+              tab.type = 'button';
+              tab.className = `workbook-tab${index === 0 ? ' active' : ''}`;
+              tab.dataset.sheetTab = String(index);
+              tab.setAttribute('role', 'tab');
+              tab.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+              tab.textContent = sheet.name;
+              tabs.appendChild(tab);
+              return;
+            }
+
+            const scroll = document.createElement('div');
+            scroll.className = 'workbook-grid-scroll';
+            const table = document.createElement('table');
+            table.className = 'workbook-grid-table';
+            table.dataset.columnCount = String((sheet.columns || []).length);
+            const thead = document.createElement('thead');
+            const headRow = document.createElement('tr');
+            const corner = document.createElement('th');
+            corner.className = 'workbook-corner';
+            headRow.appendChild(corner);
+            (sheet.columns || []).forEach((column, columnIndex) => {
+              const th = document.createElement('th');
+              th.dataset.columnIndex = String(columnIndex);
+              th.className = 'workbook-column-letter';
+              th.textContent = column;
+              headRow.appendChild(th);
+            });
+            thead.appendChild(headRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            (sheet.rows || []).forEach(row => {
+              const tr = document.createElement('tr');
+              tr.className = `workbook-row workbook-row-${row.role || 'data'}`;
+              const number = document.createElement('th');
+              number.className = 'workbook-row-number';
+              number.textContent = row.number;
+              tr.appendChild(number);
+              (row.cells || []).forEach((value, columnIndex) => {
+                const td = document.createElement('td');
+                td.dataset.columnIndex = String(columnIndex);
+                const text = value == null ? '' : String(value);
+                td.textContent = text;
+                if (!text) td.className = 'workbook-empty-cell';
+                td.title = text;
+                tr.appendChild(td);
+              });
+              tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            scroll.appendChild(table);
+            panel.appendChild(scroll);
+            stage.appendChild(panel);
+
+            const tab = document.createElement('button');
+            tab.type = 'button';
+            tab.className = `workbook-tab${index === 0 ? ' active' : ''}`;
+            tab.dataset.sheetTab = String(index);
+            tab.setAttribute('role', 'tab');
+            tab.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+            tab.textContent = sheet.name;
+            tabs.appendChild(tab);
+          });
+
+          root.append(stage, tabs);
+          container.appendChild(root);
+          bindWorkbook(root);
+        }
+
+        window.SheetNormWorkbook = { bind: bindWorkbook, render: renderWorkbook };
+        document.querySelectorAll('[data-workbook-preview]').forEach(bindWorkbook);
+      }());
+    </script>
   </body>
 </html>

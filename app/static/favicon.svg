@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">SheetNorm</title>
+  <desc id="desc">Таблица, преобразующаяся в нормализованные строки</desc>
+  <defs>
+    <linearGradient id="g" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#10b981"/>
+      <stop offset="1" stop-color="#087e8b"/>
+    </linearGradient>
+  </defs>
+  <rect x="3" y="3" width="58" height="58" rx="14" fill="url(#g)"/>
+  <rect x="14" y="15" width="27" height="34" rx="4" fill="none" stroke="#fff" stroke-width="3"/>
+  <path d="M14 25h27M14 36h27M24 15v34" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+  <path d="M45 26h7m0 0-4-4m4 4-4 4M45 39h7m0 0-4-4m4 4-4 4" fill="none" stroke="#d8fff3" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

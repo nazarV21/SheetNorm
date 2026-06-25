@@ -18,3 +18,5 @@ requests>=2.32,<3
 python-docx>=1.1,<2
 gunicorn>=22,<24
 pytest>=8,<10
+
+psutil>=5.9,<8

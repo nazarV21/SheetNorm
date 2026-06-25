@@ -181,3 +181,70 @@ docker compose exec web flask import-json --dry-run
 docker compose exec web flask import-json
 ```
 
+
+---
+
+## Дополнительный аудит рабочих сессий и памяти — 2026-06-25
+
+После пользовательской проверки обнаружены и исправлены дополнительные проблемы.
+
+### BUG-009 — High — модель загружалась без AI-запроса
+
+- **Сценарий:** открыть обычную конвертацию или создать `ConversionService`, не используя AI.
+- **Причина:** `AIClient.__post_init__` и `InstructionAssistant.__init__` вызывали `ModelManager.get_active_model()` немедленно.
+- **Последствие:** GGUF занимала 3–8 ГБ RAM даже при открытом, но бездействующем приложении.
+- **Исправление:** реализована ленивая загрузка. Модель загружается только перед реальным completion. Обычный preview и rule-based conversion LLM не загружают.
+- **Тест:** `test_ai_clients_do_not_eagerly_load_model`.
+- **Статус:** fixed.
+
+### BUG-010 — High — рабочая сессия AI не восстанавливалась из задачи
+
+- **Сценарий:** загрузить файл, начать анализ, перейти в другой раздел, открыть задачу.
+- **Причина:** в `ProcessingJob` не сохранялись полный prompt, выбранный лист, анализ, preview и текущий шаг; карточка задачи не использовала `assistant_state.target_preview`.
+- **Исправление:** добавлены `job_kind`, `selected_sheet`, `execution_mode`, `resume_step`, `assistant_state`; реализованы autosave API, фоновый анализ, кнопка «Продолжить», исходный и итоговый preview в карточке задачи.
+- **Тесты:** `test_assistant_fallback_builds_preview_and_can_resume`, `test_assistant_draft_autosave_is_visible_in_tasks`.
+- **Статус:** fixed.
+
+### BUG-011 — Medium — autosave сбрасывал шаг сессии
+
+- **Сценарий:** открыть готовый preview, изменить prompt и перейти на другую страницу.
+- **Причина:** клиент всегда сохранял `current_step=1`.
+- **Исправление:** текущий шаг передаётся отдельным hidden field и не уменьшается при autosave.
+- **Тест:** проверка восстановленного `assistant-current-step` в `test_assistant_draft_autosave_is_visible_in_tasks`.
+- **Статус:** fixed.
+
+### BUG-012 — High — фоновый preview вызывал метод с неподдерживаемым аргументом
+
+- **Сценарий:** запустить анализ AI-сессии в фоне.
+- **Причина:** worker вызывал `preview_with_instruction(..., max_columns=18)`, хотя метод не принимает `max_columns`.
+- **Исправление:** worker использует `preview_workbook_with_instruction`, который формирует много-листовый Excel-preview.
+- **Статус:** fixed.
+
+### BUG-013 — Medium — idle unload мог пересечься с inference
+
+- **Сценарий:** AI-запрос начинается одновременно с таймером автовыгрузки.
+- **Причина:** модель разрешалась до захвата inference lock, а idle callback не синхронизировался с inference.
+- **Исправление:** загрузка и completion выполняются под единым inference lock; idle unload ждёт завершения inference.
+- **Статус:** fixed.
+
+### BUG-014 — Medium — тест второй модели мог удвоить расход RAM
+
+- **Сценарий:** активна одна GGUF, администратор тестирует другую.
+- **Причина:** временная модель загружалась рядом с уже резидентной.
+- **Исправление:** текущий экземпляр выгружается перед тестом кандидата; активный путь остаётся сохранён и при необходимости загрузится снова.
+- **Статус:** fixed.
+
+### Проверки после дополнительного аудита
+
+- `python -m compileall app main.py config.py`: passed.
+- `python -m pytest -q`: **71 passed**.
+- Alembic upgrade на чистой SQLite: `0001 → 0002 → 0003`, head достигнут.
+- Проверены новые колонки `processing_jobs` и `ai_settings`.
+- YAML `docker-compose.yml` успешно разобран PyYAML; Docker runtime в среде недоступен.
+- `ruff`, `black`, `mypy` не запускались: инструменты не установлены.
+
+### Оставшиеся ограничения
+
+- `ASYNC_MODE=thread` не зависит от вкладки браузера, но не переживает остановку Python-процесса. Для устойчивого server deployment нужен Redis/RQ.
+- Настоящая sandbox-изоляция pandas-скриптов не завершена, поэтому `SCRIPT_EXECUTION_ENABLED=false` является безопасным значением по умолчанию.
+- Полная аутентификация и workspace role enforcement всё ещё требуют отдельного прохода перед многопользовательским production.

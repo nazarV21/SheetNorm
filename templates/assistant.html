@@ -6,22 +6,45 @@
     <div class="step active">1. Файл</div><div class="step {% if result %}active{% endif %}">2. Анализ</div><div class="step {% if result %}active{% endif %}">3. Инструкция</div><div class="step {% if result %}active{% endif %}">4. Правило</div><div class="step {% if target_preview %}active{% endif %}">5. Предпросмотр</div><div class="step">6. Шаблон</div><div class="step">7. Экспорт</div>
   </div>
 
-  <form method="post" enctype="multipart/form-data" class="panel">
+  <form method="post" enctype="multipart/form-data" class="panel" id="assistant-main-form">
+    <input type="hidden" id="assistant-job-id" name="job_id" value="{{ draft_job.job_id if draft_job else (result.job_id if result else '') }}">
+    <input type="hidden" id="assistant-current-step" value="{{ draft_job.resume_step if draft_job else (6 if target_preview else (4 if result else 1)) }}">
     <h3><span class="step-badge">Шаг 1</span>Загрузить файл и описать задачу</h3>
     <div class="field">
       <label for="file">Excel-файл для анализа</label>
       <div class="file-row">
         <label class="file-label">
           <span>Выбрать файл</span>
-          <input id="file" type="file" name="file" accept=".xlsx,.xls" required onchange="updateFileName(this, 'assistant-file-name')">
+          <input id="file" type="file" name="file" accept=".xlsx,.xls" {% if not draft_job %}required{% endif %}>
         </label>
-        <span class="file-name" id="assistant-file-name">Файл не выбран</span>
+        <span class="file-name" id="assistant-file-name">{{ draft_job.input_filename if draft_job else 'Файл не выбран' }}</span>
       </div>
     </div>
 
     <div class="field">
-      <label for="sheet_name">Лист Excel (опционально)</label>
-      <input id="sheet_name" name="sheet_name" type="text" placeholder="Оставьте пустым, если нужно анализировать первый лист">
+      <label for="sheet_name">Лист Excel</label>
+      <select id="sheet_name" name="sheet_name">
+        <option value="">Первый лист</option>
+        {% if source_preview %}
+          {% for sheet in source_preview.sheets %}<option value="{{ sheet.name }}" {% if selected_sheet == sheet.name %}selected{% endif %}>{{ sheet.name }}</option>{% endfor %}
+        {% endif %}
+      </select>
+      <p class="meta">После выбора файла список листов заполнится автоматически.</p>
+    </div>
+
+    <div class="assistant-preview-loading hint-box" id="assistant-preview-loading" hidden>Читаем Excel и строим предпросмотр…</div>
+    <div class="assistant-live-preview" id="assistant-live-preview" {% if not source_preview %}hidden{% endif %}>
+      <h3>Предпросмотр загруженного файла</h3>
+      <p class="meta">Файл и черновик инструкции сохраняются автоматически. Можно перейти в другой раздел и продолжить работу из задачи.</p>
+      <div id="assistant-workbook-container">
+        {% if source_preview %}{% set workbook_preview = source_preview %}{% include "_workbook_preview.html" %}{% endif %}
+      </div>
+      <div class="hint-box">
+        <strong>Подсказки по инструкции для этого файла</strong>
+        <div class="prompt-tips" id="assistant-prompt-tips">
+          {% for tip in prompt_tips %}<div class="prompt-tip"><span>{{ tip }}</span><button type="button" class="secondary server-prompt-tip" data-tip="{{ tip }}">Добавить</button></div>{% endfor %}
+        </div>
+      </div>
     </div>
 
     <div class="field">
@@ -36,6 +59,7 @@
         <button type="button" class="secondary prompt-example">Месяцы перенести в колонку Период</button>
         <button type="button" class="secondary prompt-example">Первые 3 столбца оставить идентификаторами</button>
         <button type="button" class="secondary prompt-example">Заполнить пустые значения из объединённых ячеек</button>
+        <button type="button" class="secondary prompt-example">Разделить по филиалам на отдельные листы и добавить итог на каждом листе</button>
       </div>
     </div>
 
@@ -53,38 +77,9 @@
     <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;">
 
     <h3><span class="step-badge">Шаг 2</span>Предпросмотр исходного файла</h3>
-    <p class="meta">
-      Система показывает, где она видит служебные строки, заголовки и начало данных. Это помогает понять, почему она предлагает именно такую инструкцию.
-    </p>
-    {% if preview and preview.legend %}
-      <div class="legend-row">
-        {% for item in preview.legend %}
-          <span class="legend-item {{ item.role }}">{{ item.label }}</span>
-        {% endfor %}
-      </div>
-    {% endif %}
-    <div class="preview-table-wrapper">
-      <table class="preview-table">
-        <thead>
-          <tr>
-            <th>№</th>
-            <th>Роль</th>
-            {% for col in (preview.columns if preview else []) %}<th>{{ col }}</th>{% endfor %}
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in (preview.rows if preview else []) %}
-            <tr class="preview-row {{ row.role }}">
-              <td class="row-number">{{ row.number }}</td>
-              <td class="row-role">{{ row.role_label }}</td>
-              {% for cell in row.cells %}
-                <td class="{% if cell.is_empty %}empty-cell{% endif %}">{{ cell.value }}</td>
-              {% endfor %}
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    <p class="meta">Переключайтесь между листами. Система отдельно показывает найденную структуру ниже.</p>
+    {% set workbook_preview = result.source_workbook_preview %}
+    {% include "_workbook_preview.html" %}
 
     <h3><span class="step-badge">Шаг 3</span>Как система поняла файл и задачу</h3>
     <div class="stats-grid">
@@ -127,14 +122,11 @@
 
     {% if result.learning_examples %}
       <div class="hint-box">
-        <strong>Что система учла из прошлых исправлений:</strong>
+        <strong>Структурные подсказки из истории:</strong>
+        <p>Они используются только для распознавания структуры файла и не могут добавлять новые требования к результату.</p>
         <ul>
           {% for item in result.learning_examples %}
-            <li>
-              Совпадение {{ item.similarity_score }}.
-              {% if item.user_corrected_instruction %}Похожая правка: {{ item.user_corrected_instruction }}{% endif %}
-              {% if item.changed_terms %}<br>Важные добавленные уточнения: {{ item.changed_terms|join(', ') }}{% endif %}
-            </li>
+            <li>{{ item.structural_note }}{% if item.similarity_score %} — совпадение {{ item.similarity_score }}{% endif %}</li>
           {% endfor %}
         </ul>
       </div>
@@ -257,35 +249,11 @@
     {% if target_preview %}
       <h3><span class="step-badge">Шаг 6</span>Предпросмотр итоговой таблицы</h3>
       <p class="meta">
-        Показаны первые {{ target_preview.shown_rows }} строк результата из {{ target_preview.total_rows }}.
-        Таблица доступна только для просмотра. Если нужно изменить результат — уточните инструкцию на шаге 5.
+        Предпросмотр повторяет структуру итогового Excel: если инструкция создаёт отдельные листы, они уже доступны на вкладках.
+        Чтобы изменить результат, уточните инструкцию на шаге 5.
       </p>
-      {% if target_preview.is_limited %}
-        <div class="warning-box">
-          Показаны не все строки, а только первые {{ target_preview.shown_rows }}. Полный результат будет сформирован при конвертации/скачивании.
-        </div>
-      {% endif %}
-
-      <div class="preview-table-wrapper">
-        <table class="preview-table">
-          <thead>
-            <tr>
-              {% for col in target_preview.columns %}
-                <th>{{ col }}</th>
-              {% endfor %}
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in target_preview.rows %}
-              <tr>
-                {% for cell in row %}
-                  <td>{{ cell }}</td>
-                {% endfor %}
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+      {% set workbook_preview = target_preview %}
+      {% include "_workbook_preview.html" %}
 
       <form method="post" action="{{ url_for('web.assistant_convert_checked') }}" class="panel">
         <h3><span class="step-badge">Шаг 7</span>Сформировать готовый Excel после проверки</h3>
@@ -348,15 +316,206 @@
   </style>
 
   <script>
-    function updateFileName(input, spanId) {
-      const span = document.getElementById(spanId);
-      const files = input.files;
-      span.textContent = files && files[0] ? files[0].name : 'Файл не выбран';
+    const assistantFileInput = document.getElementById('file');
+    const assistantFileName = document.getElementById('assistant-file-name');
+    const assistantSheetSelect = document.getElementById('sheet_name');
+    const assistantLoading = document.getElementById('assistant-preview-loading');
+    const assistantLivePreview = document.getElementById('assistant-live-preview');
+    const assistantWorkbookContainer = document.getElementById('assistant-workbook-container');
+    const assistantPromptTips = document.getElementById('assistant-prompt-tips');
+    const rawPromptTextarea = document.getElementById('raw_prompt');
+    const assistantJobId = document.getElementById('assistant-job-id');
+    const assistantCurrentStep = document.getElementById('assistant-current-step');
+    let autosaveTimer = null;
+
+    function appendPromptText(text) {
+      const current = rawPromptTextarea.value.trim();
+      const normalized = String(text || '').trim().replace(/[.\s]+$/, '');
+      rawPromptTextarea.value = [current.replace(/[.\s]+$/, ''), normalized].filter(Boolean).join('. ') + (normalized ? '.' : '');
+      rawPromptTextarea.focus();
     }
+
+    function renderPromptTips(tips) {
+      assistantPromptTips.replaceChildren();
+      (tips || []).forEach(tip => {
+        const item = document.createElement('div');
+        item.className = 'prompt-tip';
+        const text = document.createElement('span');
+        text.textContent = tip;
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'secondary';
+        add.textContent = 'Добавить';
+        add.addEventListener('click', () => appendPromptText(tip));
+        item.append(text, add);
+        assistantPromptTips.appendChild(item);
+      });
+    }
+
+    function updateSheetOptions(sheets, selected) {
+      assistantSheetSelect.replaceChildren();
+      const first = document.createElement('option');
+      first.value = '';
+      first.textContent = 'Первый лист';
+      assistantSheetSelect.appendChild(first);
+      (sheets || []).forEach(sheet => {
+        const option = document.createElement('option');
+        option.value = sheet;
+        option.textContent = sheet;
+        if (sheet === selected) option.selected = true;
+        assistantSheetSelect.appendChild(option);
+      });
+    }
+
+    let assistantPreviewController = null;
+
+    function showAssistantPreviewError(message, details = '', suggestion = '') {
+      assistantWorkbookContainer.replaceChildren();
+      const warning = document.createElement('div');
+      warning.className = 'warning-box';
+
+      const title = document.createElement('strong');
+      title.textContent = message || 'Не удалось прочитать файл';
+      warning.appendChild(title);
+
+      if (details) {
+        const detailsNode = document.createElement('p');
+        detailsNode.textContent = details;
+        warning.appendChild(detailsNode);
+      }
+      if (suggestion) {
+        const suggestionNode = document.createElement('p');
+        suggestionNode.textContent = suggestion;
+        warning.appendChild(suggestionNode);
+      }
+
+      assistantWorkbookContainer.appendChild(warning);
+      assistantLivePreview.hidden = false;
+    }
+
+    async function readJsonResponse(response) {
+      const text = await response.text();
+      if (!text) return {};
+      try {
+        return JSON.parse(text);
+      } catch (_error) {
+        return {
+          error: response.ok ? 'Сервер вернул некорректный ответ' : `Ошибка HTTP ${response.status}`,
+          details: text.slice(0, 500),
+        };
+      }
+    }
+
+    async function loadAssistantPreview(forceUpload = false) {
+      const selectedFile = assistantFileInput.files && assistantFileInput.files[0];
+      const file = forceUpload ? selectedFile : null;
+      const existingJobId = assistantJobId.value.trim();
+      if (!file && !existingJobId) {
+        assistantFileName.textContent = 'Файл не выбран';
+        assistantLivePreview.hidden = true;
+        renderPromptTips([]);
+        return;
+      }
+
+      if (assistantPreviewController) assistantPreviewController.abort();
+      assistantPreviewController = new AbortController();
+
+      if (file) assistantFileName.textContent = file.name;
+      assistantLoading.hidden = false;
+      assistantLivePreview.hidden = true;
+      assistantWorkbookContainer.replaceChildren();
+      renderPromptTips([]);
+
+      const data = new FormData();
+      if (file) data.append('file', file, file.name);
+      if (existingJobId && !file) data.append('job_id', existingJobId);
+      if (assistantSheetSelect.value) data.append('sheet_name', assistantSheetSelect.value);
+      if (rawPromptTextarea.value) data.append('raw_prompt', rawPromptTextarea.value);
+
+      try {
+        const response = await fetch({{ url_for('api.assistant_file_preview')|tojson }}, {
+          method: 'POST',
+          body: data,
+          signal: assistantPreviewController.signal,
+        });
+        const payload = await readJsonResponse(response);
+        if (!response.ok) {
+          const error = new Error(payload.error || 'Не удалось прочитать файл.');
+          error.details = payload.details || '';
+          error.suggestion = payload.suggestion || '';
+          throw error;
+        }
+
+        if (payload.job_id) {
+          assistantJobId.value = payload.job_id;
+          const url = new URL(window.location.href);
+          url.searchParams.set('job_id', payload.job_id);
+          window.history.replaceState({}, '', url);
+        }
+        updateSheetOptions(payload.analysis?.sheets || [], payload.analysis?.selected_sheet || '');
+        renderPromptTips(payload.prompt_tips || []);
+        assistantLivePreview.hidden = false;
+
+        if (window.SheetNormWorkbook && typeof window.SheetNormWorkbook.render === 'function') {
+          window.SheetNormWorkbook.render(assistantWorkbookContainer, payload.workbook_preview);
+        } else {
+          showAssistantPreviewError(
+            'Компонент предпросмотра не загрузился',
+            'Список листов и подсказки уже обновлены.',
+            'Обновите страницу и повторите выбор файла.'
+          );
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        renderPromptTips([]);
+        showAssistantPreviewError(
+          error.message || String(error),
+          error.details || '',
+          error.suggestion || 'Повторите выбор файла. Если ошибка сохраняется, проверьте журнал приложения.'
+        );
+      } finally {
+        assistantLoading.hidden = true;
+      }
+    }
+
+    async function autosaveAssistantState() {
+      const jobId = assistantJobId.value.trim();
+      if (!jobId) return;
+      try {
+        await fetch(`/api/jobs/${encodeURIComponent(jobId)}/assistant-state`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            raw_prompt: rawPromptTextarea.value,
+            sheet_name: assistantSheetSelect.value,
+            current_step: Math.max(1, Number(assistantCurrentStep?.value || 1)),
+          }),
+        });
+      } catch (_error) {
+        // The next edit retries automatically; conversion is not blocked.
+      }
+    }
+
+    function scheduleAutosave() {
+      window.clearTimeout(autosaveTimer);
+      autosaveTimer = window.setTimeout(autosaveAssistantState, 700);
+    }
+
+    assistantFileInput.addEventListener('change', () => loadAssistantPreview(true));
+    assistantSheetSelect.addEventListener('change', () => {
+      loadAssistantPreview(false);
+      scheduleAutosave();
+    });
+    rawPromptTextarea.addEventListener('input', scheduleAutosave);
+
     document.querySelectorAll('.prompt-example').forEach(button => button.addEventListener('click', () => {
-      const textarea = document.getElementById('raw_prompt');
-      textarea.value = [textarea.value.trim(), button.textContent.trim()].filter(Boolean).join('. ');
-      textarea.focus();
+      appendPromptText(button.textContent.trim());
+      scheduleAutosave();
     }));
+    document.querySelectorAll('.server-prompt-tip').forEach(button => button.addEventListener('click', () => {
+      appendPromptText(button.dataset.tip || '');
+      scheduleAutosave();
+    }));
+    document.querySelectorAll('[data-workbook-preview]').forEach(root => window.SheetNormWorkbook?.bind(root));
   </script>
 {% endblock %}

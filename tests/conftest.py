@@ -16,6 +16,7 @@ def app(tmp_path: Path):
         OUTPUT_DIR=tmp_path / "output",
         HISTORY_FILE=tmp_path / "history.json",
         JOBS_FILE=tmp_path / "jobs.json",
+        BATCHES_FILE=tmp_path / "batches.json",
         RULES_FILE=tmp_path / "rules.json",
         TRAINING_EXAMPLES_FILE=tmp_path / "training_examples.json",
         TRAINING_EXAMPLES_DIR=tmp_path / "training_examples",

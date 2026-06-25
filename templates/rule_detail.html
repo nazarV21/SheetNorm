@@ -6,6 +6,6 @@
   <div class="stats-grid"><div><strong>Создан</strong><br><span class="meta">{{ rule.created_at or '—' }}</span></div><div><strong>Обновлён</strong><br><span class="meta">{{ rule.updated_at or '—' }}</span></div><div><strong>Лист</strong><br>{{ rule.sheet_name if rule.sheet_name is not none else 'Автоматически' }}</div><div><strong>Теги</strong><br>{{ rule.tags|join(', ') if rule.tags else '—' }}</div></div>
   <section class="panel"><h2>Инструкция</h2><div class="prompt-preview">{{ rule.ai_improved_instruction or rule.prompt }}</div></section>
   {% if rule.validation_warnings %}<div class="warning-box"><strong>Предупреждения валидации:</strong><ul>{% for warning in rule.validation_warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>{% endif %}
-  <details><summary>Формализованное JSON-правило</summary><pre class="panel" style="overflow:auto;white-space:pre-wrap;">{{ generated_rule_json }}</pre></details>
+  <details><summary>Формализованное JSON-правило</summary><pre class="panel" style="max-width:100%;overflow-wrap:anywhere;word-break:break-word;white-space:pre-wrap;">{{ generated_rule_json }}</pre></details>
   <div class="button-row"><a class="action-link" href="{{ url_for('web.index', rule_id=rule.id) }}">Протестировать</a><a class="action-link secondary" href="{{ url_for('web.edit_rule', rule_id=rule.id) }}">Редактировать</a><a class="action-link secondary" href="{{ url_for('web.export_rule', rule_id=rule.id) }}">Экспорт JSON</a><a class="action-link secondary" href="{{ url_for('web.rules_list') }}">К библиотеке</a></div>
 {% endblock %}

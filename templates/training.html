@@ -174,7 +174,7 @@
       <p class="meta">Пока нет обучающих примеров.</p>
     {% else %}
       <div class="history-table-wrapper" style="max-height:460px;">
-        <table class="history-table">
+        <table class="history-table responsive-table">
           <thead>
             <tr>
               <th>Дата</th>
@@ -188,18 +188,18 @@
           <tbody>
             {% for ex in examples %}
               <tr>
-                <td>{{ ex.created_at }}</td>
-                <td title="{{ ex.source_filename }}">{{ ex.source_filename }}</td>
-                <td title="{{ ex.target_filename }}">{{ ex.target_filename }}</td>
-                <td>{{ ex.rule_id or 'Глобальный' }}</td>
-                <td>
+                <td data-label="Дата">{{ ex.created_at }}</td>
+                <td data-label="Исходный файл" title="{{ ex.source_filename }}">{{ ex.source_filename }}</td>
+                <td data-label="Итоговый файл" title="{{ ex.target_filename }}">{{ ex.target_filename }}</td>
+                <td data-label="Правило">{{ ex.rule_id or 'Глобальный' }}</td>
+                <td data-label="Статус">
                   {% if ex.source_exists and ex.target_exists %}
                     доступен
                   {% else %}
                     файл не найден
                   {% endif %}
                 </td>
-                <td>
+                <td data-label="Действия">
                   <form method="post" action="{{ url_for('web.delete_training_example', example_id=ex.id) }}" style="display:inline;">
                     <button type="submit" onclick="return confirm('Удалить обучающий пример?');" style="padding:4px 9px;background:#dc2626;border-color:#dc2626;font-size:12px;">Удалить</button>
                   </form>

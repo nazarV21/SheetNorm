@@ -9,7 +9,7 @@ from typing import Any
 from flask import current_app
 
 
-JOB_STATUSES = {"created", "queued", "processing", "success", "failed", "cancelled"}
+JOB_STATUSES = {"created", "queued", "processing", "requires_review", "success", "failed", "cancelled"}
 _LOCK = threading.RLock()
 
 
@@ -63,6 +63,10 @@ class JobsRepository:
         rule_id: str | None = None,
         rule_name: str | None = None,
         original_instruction: str | None = None,
+        job_kind: str = "conversion",
+        selected_sheet: str | None = None,
+        execution_mode: str | None = None,
+        assistant_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if self._use_database:
             return self._database().create(
@@ -72,6 +76,10 @@ class JobsRepository:
                 rule_id=rule_id,
                 rule_name=rule_name,
                 original_instruction=original_instruction,
+                job_kind=job_kind,
+                selected_sheet=selected_sheet,
+                execution_mode=execution_mode,
+                assistant_state=assistant_state or {},
             )
         with _LOCK:
             jobs = self._load_all()
@@ -82,6 +90,9 @@ class JobsRepository:
             job = {
                 "job_id": job_id,
                 "status": "created",
+                "stage": "created",
+                "progress": 0,
+                "queue_job_id": None,
                 "created_at": timestamp,
                 "updated_at": timestamp,
                 "input_filename": input_filename,
@@ -92,6 +103,11 @@ class JobsRepository:
                 "rule_name": rule_name,
                 "original_instruction": original_instruction,
                 "improved_instruction": None,
+                "job_kind": job_kind,
+                "selected_sheet": selected_sheet,
+                "execution_mode": execution_mode,
+                "resume_step": 1,
+                "assistant_state": dict(assistant_state or {}),
                 "detected_table_type": None,
                 "rows_input": None,
                 "rows_output": None,
@@ -165,6 +181,9 @@ class JobsRepository:
                 original_instruction=original_instruction,
                 improved_instruction=improved_instruction,
             )
+        current = self.get(job_id)
+        if current and current.get("status") == "cancelled":
+            return current
         quality = quality_report or {}
         return self.update_status(
             job_id,
@@ -186,6 +205,21 @@ class JobsRepository:
             quality_report=quality,
             duration_seconds=round(duration_seconds, 3) if duration_seconds is not None else None,
         )
+
+
+    def update_context(self, job_id: str, **changes: Any) -> dict[str, Any] | None:
+        """Update resumable work-session fields without changing job status."""
+        if self._use_database:
+            return self._database().update_context(job_id, **changes)
+        allowed = {
+            "job_kind", "selected_sheet", "execution_mode", "resume_step",
+            "assistant_state", "original_instruction", "improved_instruction",
+            "rule_id", "rule_name",
+        }
+        payload = {key: value for key, value in changes.items() if key in allowed}
+        if not payload:
+            return self.get(job_id)
+        return self._update(job_id, payload)
 
     def append_error(
         self,

@@ -1,25 +1,65 @@
 {% extends "layout.html" %}
 {% block title %}Конвертация — SheetNorm{% endblock %}
 {% block content %}
-  <div class="page-header"><div><div class="eyebrow">Регулярная обработка</div><h1>Конвертация Excel</h1><p class="lead">Примените проверенный шаблон к новому файлу или опишите разовую задачу.</p></div></div>
+  <div class="page-header">
+    <div>
+      <div class="eyebrow">Регулярная обработка</div>
+      <h1>Конвертация Excel</h1>
+      <p class="lead">Обработайте один файл, сразу несколько файлов или целую папку. Все задачи продолжат выполняться в фоне.</p>
+    </div>
+  </div>
 
   <form method="post" enctype="multipart/form-data" id="convert-form">
+    <input type="hidden" name="source_mode" id="source-mode" value="files">
+    <input type="hidden" name="folder_name" id="folder-name" value="">
+
     <section class="panel">
-      <h3>1. Выберите Excel-файл</h3>
-      <div class="drop-zone" id="drop-zone">
-        <div class="file-row">
-          <label class="file-label"><span>Выбрать файл</span><input id="file" type="file" name="file" accept=".xlsx,.xls" required></label>
-          <span class="file-name" id="file-name">Перетащите сюда файл .xlsx или .xls</span>
-        </div>
-        <p class="meta" id="file-meta" style="margin:8px 0 0;">Максимальный размер определяется настройкой сервера.</p>
+      <h3>1. Выберите файлы</h3>
+      <div class="upload-mode-tabs" role="tablist">
+        <button type="button" class="upload-mode-tab active" data-upload-mode="files">Файлы</button>
+        <button type="button" class="upload-mode-tab" data-upload-mode="folder">Папка</button>
       </div>
+
+      <div id="files-upload-panel">
+        <div class="drop-zone" id="drop-zone">
+          <div class="file-row">
+            <label class="file-label">
+              <span>Выбрать файлы</span>
+              <input id="files" type="file" name="files" accept=".xlsx,.xls" multiple>
+            </label>
+            <span class="file-name" id="file-name">Перетащите сюда один или несколько файлов .xlsx/.xls</span>
+          </div>
+          <p class="meta" style="margin:8px 0 0;">Каждый файл станет отдельной фоновой задачей. Для одного файла откроется его карточка, для нескольких — страница пакета.</p>
+        </div>
+      </div>
+
+      <div id="folder-upload-panel" hidden>
+        <div class="grid-2">
+          <div class="drop-zone">
+            <h4>Универсальный вариант</h4>
+            <p class="meta">Работает почти во всех браузерах. После обработки можно скачать готовые файлы одним ZIP.</p>
+            <label class="file-label">
+              <span>Выбрать папку</span>
+              <input id="folder-files" type="file" name="folder_files" accept=".xlsx,.xls" webkitdirectory directory multiple>
+            </label>
+          </div>
+          <div class="drop-zone">
+            <h4>Сохранить результаты рядом</h4>
+            <p class="meta">Для Chrome/Edge. SheetNorm создаст подпапку <code>SheetNorm_results</code> в выбранной папке и будет сохранять туда готовые файлы.</p>
+            <button type="button" id="native-folder-button">Выбрать папку и запустить</button>
+            <p class="meta" id="native-folder-state">Доступность зависит от браузера и разрешения на запись.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="selected-files-list" id="selected-files-list"></div>
     </section>
 
     <section class="panel">
       <h3>2. Выберите способ обработки</h3>
       <div class="mode-grid">
         <label class="mode-card"><input type="radio" name="mode" value="rule" checked><strong>Готовый шаблон</strong><span>Для регулярных файлов с уже проверенной структурой.</span></label>
-        <label class="mode-card"><input type="radio" name="mode" value="custom"><strong>Новая инструкция</strong><span>Для разовой задачи или нового формата отчёта.</span></label>
+        <label class="mode-card"><input type="radio" name="mode" value="custom"><strong>Новая инструкция</strong><span>Одна инструкция будет применена ко всем выбранным файлам.</span></label>
       </div>
     </section>
 
@@ -44,7 +84,7 @@
         {% endfor %}
       </div>
       <div class="empty-state" id="rules-empty" hidden>Шаблоны по выбранным условиям не найдены.</div>
-      <div class="warning-box" id="compatibility-warning">Перед обработкой убедитесь, что структура нового файла соответствует выбранному шаблону. Для нового формата используйте AI-помощник.</div>
+      <div class="warning-box" id="compatibility-warning">Перед пакетной обработкой убедитесь, что выбранные файлы имеют похожую структуру. Для нового формата сначала проверьте один файл через AI-помощник.</div>
     </section>
 
     <section id="custom-panel" class="panel" hidden>
@@ -54,20 +94,72 @@
       <div id="save-rule-panel" hidden><div class="grid-2"><div class="field"><label for="new_rule_name">Название шаблона</label><input id="new_rule_name" name="new_rule_name" type="text" placeholder="Например: Продажи по филиалам"></div><div class="field"><label for="domain">Категория</label><input id="domain" name="domain" type="text" value="universal"></div></div></div>
     </section>
 
-    <button type="submit">Загрузить и конвертировать</button>
+    <button type="submit" id="submit-conversion">Запустить обработку</button>
   </form>
 
   <script>
-    const fileInput = document.getElementById('file');
+    const form = document.getElementById('convert-form');
+    const fileInput = document.getElementById('files');
+    const folderInput = document.getElementById('folder-files');
     const dropZone = document.getElementById('drop-zone');
-    function showFile(file) {
-      document.getElementById('file-name').textContent = file ? file.name : 'Перетащите сюда файл .xlsx или .xls';
-      document.getElementById('file-meta').textContent = file ? `${(file.size / 1024 / 1024).toFixed(2)} МБ · ${file.type || 'Excel'}` : 'Максимальный размер определяется настройкой сервера.';
+    const selectedList = document.getElementById('selected-files-list');
+    const sourceMode = document.getElementById('source-mode');
+    const folderName = document.getElementById('folder-name');
+
+    function selectedFiles() {
+      return sourceMode.value === 'folder' ? Array.from(folderInput.files || []) : Array.from(fileInput.files || []);
     }
-    fileInput.addEventListener('change', () => showFile(fileInput.files[0]));
+
+    function renderSelectedFiles(files) {
+      selectedList.replaceChildren();
+      const excel = files.filter(file => /\.(xlsx|xls)$/i.test(file.name) && !file.name.startsWith('~$'));
+      document.getElementById('file-name').textContent = excel.length ? `Выбрано файлов: ${excel.length}` : 'Перетащите сюда один или несколько файлов .xlsx/.xls';
+      excel.slice(0, 12).forEach(file => {
+        const item = document.createElement('div');
+        item.className = 'selected-file-item';
+        const name = document.createElement('span');
+        name.textContent = file.webkitRelativePath || file.name;
+        const size = document.createElement('span');
+        size.className = 'meta';
+        size.textContent = `${(file.size / 1024 / 1024).toFixed(2)} МБ`;
+        item.append(name, size);
+        selectedList.appendChild(item);
+      });
+      if (excel.length > 12) {
+        const more = document.createElement('div');
+        more.className = 'meta';
+        more.textContent = `И ещё ${excel.length - 12} файлов.`;
+        selectedList.appendChild(more);
+      }
+      return excel;
+    }
+
+    fileInput.addEventListener('change', () => renderSelectedFiles(Array.from(fileInput.files || [])));
+    folderInput.addEventListener('change', () => {
+      const files = Array.from(folderInput.files || []);
+      folderName.value = files[0]?.webkitRelativePath?.split('/')[0] || 'Выбранная папка';
+      renderSelectedFiles(files);
+    });
+
     ['dragenter', 'dragover'].forEach(name => dropZone.addEventListener(name, event => { event.preventDefault(); dropZone.classList.add('dragover'); }));
     ['dragleave', 'drop'].forEach(name => dropZone.addEventListener(name, event => { event.preventDefault(); dropZone.classList.remove('dragover'); }));
-    dropZone.addEventListener('drop', event => { if (event.dataTransfer.files.length) { fileInput.files = event.dataTransfer.files; showFile(fileInput.files[0]); } });
+    dropZone.addEventListener('drop', event => {
+      const excel = Array.from(event.dataTransfer.files || []).filter(file => /\.(xlsx|xls)$/i.test(file.name));
+      const transfer = new DataTransfer();
+      excel.forEach(file => transfer.items.add(file));
+      fileInput.files = transfer.files;
+      sourceMode.value = 'files';
+      renderSelectedFiles(excel);
+    });
+
+    document.querySelectorAll('[data-upload-mode]').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('[data-upload-mode]').forEach(item => item.classList.toggle('active', item === button));
+      const mode = button.dataset.uploadMode;
+      sourceMode.value = mode;
+      document.getElementById('files-upload-panel').hidden = mode !== 'files';
+      document.getElementById('folder-upload-panel').hidden = mode !== 'folder';
+      renderSelectedFiles(selectedFiles());
+    }));
 
     function toggleMode() {
       const mode = document.querySelector('input[name="mode"]:checked').value;
@@ -90,5 +182,83 @@
     }
     document.getElementById('rule-search').addEventListener('input', filterRules);
     document.getElementById('rule-filter').addEventListener('change', filterRules);
+
+    form.addEventListener('submit', event => {
+      const excel = selectedFiles().filter(file => /\.(xlsx|xls)$/i.test(file.name));
+      if (!excel.length) {
+        event.preventDefault();
+        alert('Выберите хотя бы один Excel-файл.');
+      }
+    });
+
+    function openHandleDb() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open('sheetnorm-folder-handles', 1);
+        request.onupgradeneeded = () => request.result.createObjectStore('handles');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function saveDirectoryHandle(batchId, handle) {
+      const db = await openHandleDb();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction('handles', 'readwrite');
+        transaction.objectStore('handles').put(handle, batchId);
+        transaction.oncomplete = resolve;
+        transaction.onerror = () => reject(transaction.error);
+      });
+    }
+
+    async function filesFromDirectory(handle, prefix = '') {
+      const files = [];
+      for await (const [name, entry] of handle.entries()) {
+        if (entry.kind === 'file' && /\.(xlsx|xls)$/i.test(name) && !name.startsWith('~$')) {
+          const file = await entry.getFile();
+          files.push(file);
+        } else if (entry.kind === 'directory' && name !== 'SheetNorm_results') {
+          files.push(...await filesFromDirectory(entry, `${prefix}${name}/`));
+        }
+      }
+      return files;
+    }
+
+    document.getElementById('native-folder-button').addEventListener('click', async () => {
+      const state = document.getElementById('native-folder-state');
+      if (!window.showDirectoryPicker) {
+        state.textContent = 'Браузер не поддерживает запись в папку. Используйте обычный выбор папки и скачивание ZIP.';
+        return;
+      }
+      try {
+        const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        const files = await filesFromDirectory(handle);
+        if (!files.length) {
+          state.textContent = 'В выбранной папке не найдено Excel-файлов.';
+          return;
+        }
+        state.textContent = `Найдено ${files.length}. Загружаем и запускаем обработку…`;
+        const data = new FormData(form);
+        data.delete('files');
+        data.delete('folder_files');
+        data.set('source_mode', 'native_folder');
+        data.set('folder_name', handle.name);
+        files.forEach(file => data.append('files', file, file.name));
+        const response = await fetch(form.action || window.location.pathname, {
+          method: 'POST',
+          body: data,
+          headers: { 'X-SheetNorm-Folder-Mode': '1' },
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Не удалось запустить пакет.');
+        await saveDirectoryHandle(payload.batch_id, handle);
+        window.location.href = payload.url;
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          state.textContent = 'Выбор папки отменён.';
+        } else {
+          state.textContent = `Ошибка: ${error.message || error}`;
+        }
+      }
+    });
   </script>
 {% endblock %}

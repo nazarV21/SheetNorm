@@ -1,37 +1,113 @@
 {% extends "layout.html" %}
-{% block title %}Задачи обработки — SheetNorm{% endblock %}
+{% block title %}Задачи — SheetNorm{% endblock %}
 {% block content %}
-  <div class="page-header"><div><div class="eyebrow">ProcessingJob</div><h1>Задачи обработки</h1><p class="lead">Текущие и завершённые операции с файлами. История остаётся legacy-журналом, а задачи содержат полный технический результат.</p></div></div>
+  {% set status_labels = {
+    'created': 'Черновик',
+    'queued': 'В очереди',
+    'processing': 'Выполняется',
+    'requires_review': 'Можно продолжить',
+    'success': 'Готово',
+    'failed': 'Ошибка',
+    'cancelled': 'Остановлена'
+  } %}
+  {% set stage_labels = {
+    'created': 'Черновик', 'queued': 'Ожидает worker', 'preparing': 'Подготовка',
+    'analyzing_file': 'Анализ файла', 'improving_instruction': 'Уточнение инструкции',
+    'building_preview': 'Предпросмотр', 'waiting_for_review': 'Ожидает проверки',
+    'executing_transformation': 'Конвертация', 'completed': 'Завершено',
+    'cancelled': 'Остановлено'
+  } %}
+  <div class="page-header">
+    <div>
+      <div class="eyebrow">Рабочий журнал</div>
+      <h1>Задачи и история</h1>
+      <p class="lead">Здесь сохраняются конвертации и рабочие сессии AI-помощника. Черновик или предпросмотр можно открыть и продолжить с последнего шага.</p>
+    </div>
+    <a class="action-link" href="{{ url_for('web.index') }}">Новая конвертация</a>
+  </div>
 
   <form method="get" class="filter-bar">
-    <input type="search" name="q" value="{{ query }}" placeholder="Файл, шаблон или job_id" aria-label="Поиск задач">
+    <input type="search" name="q" value="{{ query }}" placeholder="Файл, шаблон, промпт или job_id" aria-label="Поиск задач">
     <select name="status" aria-label="Фильтр статуса" onchange="this.form.submit()">
       <option value="">Все статусы</option>
-      {% for status in ['created', 'queued', 'processing', 'success', 'failed', 'cancelled'] %}<option value="{{ status }}" {% if selected_status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}
+      {% for status in ['created', 'queued', 'processing', 'requires_review', 'success', 'failed', 'cancelled'] %}
+        <option value="{{ status }}" {% if selected_status == status %}selected{% endif %}>{{ status_labels[status] }}</option>
+      {% endfor %}
     </select>
   </form>
 
   {% if not jobs %}
-    <div class="empty-state"><strong>Задачи не найдены</strong><p>Загрузите Excel на странице конвертации или измените фильтр.</p><a class="action-link" href="{{ url_for('web.index') }}">Создать задачу</a></div>
-  {% else %}
-    <div class="history-table-wrapper">
-      <table class="history-table">
-        <thead><tr><th>Создана</th><th>Статус</th><th>Исходный файл</th><th>Шаблон</th><th>Строк</th><th>Время</th><th>Результат</th><th></th></tr></thead>
-        <tbody>
-          {% for job in jobs %}
-            <tr>
-              <td>{{ job.created_at or '—' }}</td>
-              <td><span class="status status-{{ job.status }}">{{ job.status }}</span></td>
-              <td title="{{ job.input_filename }}">{{ job.input_filename or '—' }}</td>
-              <td>{{ job.rule_name or 'Без шаблона' }}</td>
-              <td>{{ job.rows_output if job.rows_output is not none else '—' }}</td>
-              <td>{{ '%.3f'|format(job.duration_seconds) ~ ' c' if job.duration_seconds is not none else '—' }}</td>
-              <td>{% if job.output_filename %}<a href="{{ url_for('web.download', filename=job.output_filename) }}">Скачать</a>{% else %}—{% endif %}</td>
-              <td><a href="{{ url_for('web.job_detail', job_id=job.job_id) }}">Отчёт</a></td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="empty-state">
+      <strong>Задачи не найдены</strong>
+      <p>Загрузите Excel на странице конвертации или измените фильтр.</p>
+      <a class="action-link" href="{{ url_for('web.index') }}">Создать задачу</a>
     </div>
+  {% else %}
+    <div class="responsive-record-list jobs-list">
+      {% for job in jobs %}
+        <article class="responsive-record job-card" data-job-id="{{ job.job_id }}" data-job-status="{{ job.status }}">
+          <div class="responsive-record-head">
+            <div class="responsive-record-title">
+              <strong title="{{ job.input_filename }}">{{ job.input_filename or 'Без имени файла' }}</strong>
+              <div class="meta">{{ job.created_at or 'Дата не указана' }} · {% if job.job_kind == 'assistant' %}AI-сессия{% else %}Конвертация{% endif %}</div>
+            </div>
+            <span class="status status-{{ job.status }}">{{ status_labels.get(job.status, job.status) }}</span>
+          </div>
+          {% set prompt = job.original_instruction or job.improved_instruction %}
+          <div class="job-prompt-block">
+            <small>Использованная инструкция</small>
+            <div class="job-prompt">{{ prompt or 'Без текстовой инструкции' }}</div>
+          </div>
+          {% if job.status in ['queued', 'processing'] %}
+            <div class="job-progress">
+              <div class="progress-track"><div class="progress-fill" style="width:{{ job.progress or 0 }}%;"></div></div>
+              <div class="job-progress-meta"><span>{{ stage_labels.get(job.stage, job.stage or job.status) }}</span><span>{{ job.progress or 0 }}%</span></div>
+            </div>
+          {% endif %}
+          <div class="responsive-record-meta">
+            <div><small>Этап</small>{{ stage_labels.get(job.stage, job.stage or '—') }}</div>
+            <div><small>Шаблон</small>{{ job.rule_name or 'Без шаблона' }}</div>
+            <div><small>Режим</small>{{ job.execution_mode or ('AI-план' if job.job_kind == 'assistant' else 'Стандартный') }}</div>
+            <div><small>Результат</small>{% if job.output_available and job.output_filename %}<a href="{{ url_for('web.download', filename=job.output_filename) }}">Скачать файл</a>{% elif job.status in ['created', 'queued', 'processing'] %}Обрабатывается{% elif job.status == 'requires_review' %}Предпросмотр готов{% else %}Нет результата{% endif %}</div>
+          </div>
+          <div class="button-row jobs-actions">
+            {% if job.job_kind == 'assistant' and job.status in ['created', 'requires_review', 'failed', 'cancelled'] %}
+              <a class="small-btn" href="{{ url_for('web.instruction_assistant', job_id=job.job_id) }}">Продолжить</a>
+            {% else %}
+              <a class="small-btn secondary" href="{{ url_for('web.job_detail', job_id=job.job_id) }}">Открыть</a>
+            {% endif %}
+            {% if job.status in ['created', 'queued', 'processing'] %}
+              <form class="inline-form" method="post" action="{{ url_for('web.cancel_job', job_id=job.job_id) }}" onsubmit="return confirm('Остановить обработку этой задачи?');">
+                <button class="small-btn danger-btn" type="submit">Остановить</button>
+              </form>
+            {% elif job.status in ['success', 'failed', 'cancelled'] %}
+              {% if job.input_available %}
+                <form class="inline-form" method="post" action="{{ url_for('web.edit_job', job_id=job.job_id) }}">
+                  <button class="small-btn secondary" type="submit">Изменить</button>
+                </form>
+              {% endif %}
+              {% if job.status in ['failed', 'cancelled'] %}
+                <form class="inline-form" method="post" action="{{ url_for('web.retry_job', job_id=job.job_id) }}">
+                  <button class="small-btn secondary" type="submit">Повторить</button>
+                </form>
+              {% endif %}
+            {% endif %}
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <style>
+    .jobs-list { margin-top: 10px; }
+    .job-card { display: grid; gap: 12px; }
+    .job-prompt-block { min-width: 0; padding: 10px 12px; border-left: 3px solid #b7dce0; border-radius: 0 7px 7px 0; background: #f8fafb; }
+    .job-prompt-block small { display: block; margin-bottom: 4px; color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .job-prompt { color: #445762; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .jobs-actions { margin-top: 2px; }
+  </style>
+
+  {% if jobs|selectattr('status', 'in', ['created', 'queued', 'processing'])|list %}
+    <script>window.setTimeout(() => window.location.reload(), 3500);</script>
   {% endif %}
 {% endblock %}

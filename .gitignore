@@ -39,3 +39,7 @@ jobs.json
 # System
 Thumbs.db
 .DS_Store
+
+ai_settings.json
+models/*.gguf
+models/**/*.gguf

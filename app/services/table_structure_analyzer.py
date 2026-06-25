@@ -48,15 +48,21 @@ class TableStructureAnalyzer:
     ) -> dict[str, Any]:
         path = Path(path)
         workbook = load_workbook(path, read_only=False, data_only=True)
-        sheets = workbook.sheetnames
-        selected_sheet = sheet_name if sheet_name not in (None, "") else sheets[0]
-        if isinstance(selected_sheet, int):
-            selected_sheet = sheets[selected_sheet]
-        if selected_sheet not in sheets:
-            selected_sheet = sheets[0]
+        try:
+            sheets = list(workbook.sheetnames)
+            selected_sheet = sheet_name if sheet_name not in (None, "") else sheets[0]
+            if isinstance(selected_sheet, int):
+                selected_sheet = sheets[selected_sheet]
+            if selected_sheet not in sheets:
+                selected_sheet = sheets[0]
 
-        ws = workbook[selected_sheet]
-        merged_ranges = [str(rng) for rng in ws.merged_cells.ranges]
+            ws = workbook[selected_sheet]
+            merged_ranges = [str(rng) for rng in ws.merged_cells.ranges]
+        finally:
+            # На Windows незакрытый workbook удерживает временный файл и
+            # TemporaryDirectory не может удалить его после AJAX-предпросмотра.
+            workbook.close()
+
         raw_df = pd.read_excel(path, sheet_name=selected_sheet, header=None, nrows=max_rows)
         raw_df = raw_df.dropna(how="all", axis=1)
         preview = self._preview(raw_df)
@@ -81,6 +87,11 @@ class TableStructureAnalyzer:
         id_columns, value_columns = self._apply_column_overrides(id_columns, value_columns, instruction_overrides)
         service_rows = self._guess_service_rows(preview.values, data_start_row)
         total_rows = self._guess_total_rows(preview.values)
+        fill_down_candidates = self._guess_fill_down_columns(
+            preview.values,
+            header_rows=header_rows,
+            data_start_row=data_start_row,
+        )
 
         fingerprint = {
             "sheet_count": len(sheets),
@@ -126,6 +137,7 @@ class TableStructureAnalyzer:
             value_columns=value_columns,
             total_rows=total_rows,
             instruction_overrides=instruction_overrides,
+            fill_down_candidates=fill_down_candidates,
         )
 
         preview_context = self._build_preview_context(
@@ -156,6 +168,7 @@ class TableStructureAnalyzer:
             "value_columns": value_columns,
             "service_rows": service_rows,
             "total_rows": total_rows,
+            "fill_down_candidates": fill_down_candidates,
             "fingerprint": fingerprint,
             "questions": questions,
             "draft_instruction": draft_instruction,
@@ -250,7 +263,11 @@ class TableStructureAnalyzer:
         threshold = max(2, min(4, max_count // 2 if max_count else 2))
         for idx, row in enumerate(rows):
             text = " ".join(str(cell).lower() for cell in row if str(cell).strip())
-            if non_empty_counts[idx] >= threshold and not self._is_service_text(text):
+            # Служебные подписи обычно занимают одну-две ячейки. Строку с
+            # полноценным набором названий колонок нельзя отбрасывать только
+            # потому, что одна из колонок называется «Примечание» или «Период».
+            is_compact_service_row = non_empty_counts[idx] <= 2 and self._is_service_text(text)
+            if non_empty_counts[idx] >= threshold and not is_compact_service_row:
                 return idx
         return 0
 
@@ -309,7 +326,18 @@ class TableStructureAnalyzer:
         # обычные продажи тоже могут иметь количество, цену, сумму, скидку и т.д.
         if has_months:
             return "cross_table"
-        if len(header_rows) > 1 or merged_ranges:
+
+        header_numbers = {int(row) + 1 for row in header_rows}
+        merged_in_header = False
+        for cell_range in merged_ranges:
+            rows_found = [int(value) for value in re.findall(r"[A-Z]+(\d+)", str(cell_range).upper())]
+            if not rows_found:
+                continue
+            start_row, end_row = min(rows_found), max(rows_found)
+            if any(start_row <= row_number <= end_row for row_number in header_numbers):
+                merged_in_header = True
+                break
+        if len(header_rows) > 1 or merged_in_header:
             return "multi_header"
         return "flat"
 
@@ -420,6 +448,48 @@ class TableStructureAnalyzer:
                 result.append(idx)
         return result
 
+    def _guess_fill_down_columns(
+        self,
+        rows: list[list[Any]],
+        *,
+        header_rows: list[int],
+        data_start_row: int,
+    ) -> list[str]:
+        """Найти колонки с иерархическими подписями, растянутыми вниз.
+
+        Пример: категория указана только в первой строке блока, а следующие
+        строки оставлены пустыми. Кандидат считается надёжным, если колонка
+        текстовая, первое значение заполнено, есть несколько разных подписей и
+        между ними присутствуют пустые строки.
+        """
+        if not rows or not header_rows:
+            return []
+        col_count = max((len(row) for row in rows), default=0)
+        headers = self._combined_headers(rows, header_rows, col_count)
+        result: list[str] = []
+        data_rows = rows[data_start_row:]
+        for col_idx, header in enumerate(headers):
+            name = str(header).strip()
+            if not name:
+                continue
+            values = [row[col_idx] if col_idx < len(row) else "" for row in data_rows]
+            cleaned = [str(value).strip() for value in values]
+            if not cleaned or not cleaned[0]:
+                continue
+            non_empty = [value for value in cleaned if value]
+            blanks = len(cleaned) - len(non_empty)
+            if len(non_empty) < 2 or blanks < 2:
+                continue
+            if any(self._looks_numeric(value) or self._looks_date(value) for value in non_empty):
+                continue
+            unique_values = {value.casefold() for value in non_empty}
+            if len(unique_values) < 2:
+                continue
+            ratio = len(non_empty) / max(len(cleaned), 1)
+            if 0.1 <= ratio <= 0.8:
+                result.append(name)
+        return result[:6]
+
     def _build_questions(
         self,
         table_type: str,
@@ -503,6 +573,7 @@ class TableStructureAnalyzer:
         value_columns: list[dict[str, Any]],
         total_rows: list[int],
         instruction_overrides: dict[str, Any] | None = None,
+        fill_down_candidates: list[str] | None = None,
     ) -> dict[str, Any]:
         instruction_overrides = instruction_overrides or {}
         melt_var_name = instruction_overrides.get("melt_var_name") or "Период"
@@ -518,6 +589,7 @@ class TableStructureAnalyzer:
             "drop_rows_contains": ["Итого", "Всего", "Total"] if total_rows else [],
             "normalize_headers": True,
             "instruction_overrides": instruction_overrides,
+            "fill_down_candidates": list(fill_down_candidates or []),
             "melt": {
                 "enabled": melt_enabled,
                 "var_name": melt_var_name,
@@ -528,39 +600,62 @@ class TableStructureAnalyzer:
     def _extract_instruction_overrides(self, text: str) -> dict[str, Any]:
         """Достать из инструкции явные указания пользователя.
 
-        Поддерживаем формулировки вида:
-        - «заголовки находятся на 4 строке»;
-        - «заголовки в одной строке»;
-        - «данные начинаются с 5 строки»;
-        - «не расплавлять таблицу / не преобразовывать в длинный формат»;
-        - «колонку периода назвать Месяц», «значения назвать Продажи».
+        Поддерживаются естественные формулировки, в том числе:
+        - «строка заголовков — 4»;
+        - «заголовки находятся на строке 4»;
+        - «данные начинаются со строки 5»;
+        - «не расплавлять таблицу»;
+        - «колонку периода назвать Месяц».
+
+        Номер строки заголовка и номер начала данных извлекаются независимо.
+        Это важно для фраз, где оба указания находятся в одном предложении.
         """
         normalized = self._normalize_instruction_text(text)
         if not normalized:
             return {}
         overrides: dict[str, Any] = {}
-        header_sentences = [s for s in self._sentences(normalized) if any(w in s for w in ("заголов", "шапк"))]
-        for sentence in header_sentences:
-            if "одн" in sentence and "строк" in sentence:
-                overrides["header_single_row"] = True
-            row_range = self._extract_row_range(sentence)
-            if row_range:
-                overrides["header_rows"] = row_range
-                overrides["header_single_row"] = len(row_range) == 1
-                break
-            row_number = self._extract_row_number(sentence)
-            if row_number is not None:
-                overrides["header_rows"] = [row_number]
-                overrides["header_single_row"] = True
+
+        header_range_patterns = (
+            r"(?:строк[аи]\s+заголовк\w*|заголовк\w*\s+(?:наход\w*|располож\w*)?\s*(?:на|в)?\s*строк[аеуыи]?)\s*[-–—:№]*\s*(\d+)\s*[-–—]\s*(\d+)",
+            r"заголовк\w*\s+(?:с|со)\s*(\d+)\s*(?:по|до)\s*(\d+)\s*строк",
+        )
+        for pattern in header_range_patterns:
+            match = re.search(pattern, normalized)
+            if match:
+                start_row = max(0, int(match.group(1)) - 1)
+                end_row = max(0, int(match.group(2)) - 1)
+                if start_row > end_row:
+                    start_row, end_row = end_row, start_row
+                overrides["header_rows"] = list(range(start_row, end_row + 1))[:5]
+                overrides["header_single_row"] = start_row == end_row
                 break
 
-        for sentence in self._sentences(normalized):
-            if ("данн" in sentence or "таблиц" in sentence) and ("начина" in sentence or "старт" in sentence):
-                row_number = self._extract_row_number(sentence)
-                if row_number is not None:
-                    overrides["data_start_row"] = row_number
+        if "header_rows" not in overrides:
+            header_patterns = (
+                r"строк[аи]\s+заголовк\w*\s*[-–—:№]*\s*(\d+)",
+                r"заголовк\w*(?:\s+наход\w*|\s+располож\w*)?\s*(?:на|в)?\s*строк[аеуыи]?\s*[-–—:№]*\s*(\d+)",
+                r"заголовк\w*\s*[-–—:№]*\s*(\d+)\s*строк",
+            )
+            for pattern in header_patterns:
+                match = re.search(pattern, normalized)
+                if match:
+                    overrides["header_rows"] = [max(0, int(match.group(1)) - 1)]
+                    overrides["header_single_row"] = True
                     break
 
+        data_patterns = (
+            r"данн\w*\s+(?:начина\w*|старт\w*)\s+(?:с|со)?\s*строк[аиые]?\s*[-–—:№]*\s*(\d+)",
+            r"данн\w*\s+(?:начина\w*|старт\w*)\s+(?:с|со)\s*(\d+)\s*строк",
+            r"(?:с|со)\s*(\d+)\s*строк[аиы]?\s+(?:начина\w*|идут)\s+данн",
+        )
+        for pattern in data_patterns:
+            match = re.search(pattern, normalized)
+            if match:
+                overrides["data_start_row"] = max(0, int(match.group(1)) - 1)
+                break
+
+        if any(phrase in normalized for phrase in ("заголовки в одной строке", "заголовок в одной строке")):
+            overrides["header_single_row"] = True
         if any(phrase in normalized for phrase in ("не многоуров", "не несколько строк заголов", "заголовки не идут друг", "не объединять заголов")):
             overrides["header_single_row"] = True
         if any(phrase in normalized for phrase in ("не расплав", "не преобразовывать в длин", "не переводить в длин", "не melt", "не кросс")):
@@ -674,6 +769,11 @@ class TableStructureAnalyzer:
             table_type = str(overrides["table_type"])
         elif overrides.get("disable_melt"):
             table_type = "flat"
+        elif overrides.get("header_single_row") and len(header_rows) == 1:
+            # Явное указание одной строки заголовков сильнее эвристики по
+            # объединённым ячейкам в заголовке отчёта. Кросс-таблицу сохраняем
+            # только при наличии периодов в самой строке заголовка.
+            table_type = "cross_table" if self._has_month_like_columns(rows, header_rows) else "flat"
         return header_rows, data_start_row, table_type
 
     def _choose_best_single_header_row(self, rows: list[list[Any]], header_rows: list[int], first_data_like_row: int) -> int:

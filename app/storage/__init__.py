@@ -1,4 +1,3 @@
-from .local import LocalStorageBackend, StoredObject
+from .local import LocalStorageBackend, StoredFile
 
-__all__ = ["LocalStorageBackend", "StoredObject"]
-
+__all__ = ["LocalStorageBackend", "StoredFile"]

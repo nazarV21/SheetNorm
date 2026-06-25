@@ -19,6 +19,18 @@ Services:
 - `postgres`: primary data store.
 - `redis`: RQ broker.
 
+
+## Local background mode without Redis
+
+For a local Windows/Linux pilot, use:
+
+```env
+ASYNC_MODE=thread
+LOCAL_WORKER_THREADS=1
+```
+
+The browser request returns immediately and the conversion continues in a background thread, independently of the open browser tab. The task can be stopped from `/jobs`. One worker is recommended on machines with limited RAM. Thread mode does not survive a server restart; use Redis/RQ for durable production execution.
+
 ## Health
 
 - `/health`: legacy liveness response.
@@ -42,3 +54,18 @@ Also back up:
 
 Do not replace `pg_dump` with application-level JSON export for production backup.
 
+
+
+## Рабочие сессии AI-помощника
+
+Загрузка файла в AI-помощнике сразу создаёт черновик задачи. SheetNorm автоматически сохраняет:
+
+- исходный файл и выбранный лист;
+- текущую пользовательскую инструкцию;
+- результаты анализа структуры;
+- уточнённую инструкцию;
+- сформированное правило;
+- исходный и итоговый preview;
+- текущий шаг.
+
+Сессию можно открыть через `/jobs` и продолжить после перехода на другую страницу. В локальном thread-режиме работа не зависит от вкладки браузера, но активная операция прервётся при остановке Flask-процесса. Сохранённый черновик останется доступным и может быть запущен повторно.

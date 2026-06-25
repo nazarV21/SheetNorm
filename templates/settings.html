@@ -1,43 +1,369 @@
 {% extends "layout.html" %}
 
+{% block title %}Настройки AI · SheetNorm{% endblock %}
+
 {% block content %}
-  <div class="page-header"><div><div class="eyebrow">Конфигурация</div><h1>Настройки</h1></div></div>
+  <style>
+    .settings-hero { display:flex; justify-content:space-between; align-items:flex-start; gap:24px; margin-bottom:20px; }
+    .settings-hero h1 { margin:0 0 8px; font-size:30px; }
+    .settings-tabs { display:flex; gap:6px; margin:0 0 18px; padding-bottom:10px; border-bottom:1px solid var(--line); }
+    .settings-tab { padding:8px 12px; border-radius:6px; background:#edf2f4; color:#40545f; font-weight:700; }
+    .settings-tab.active { background:#dff0f2; color:#075e68; }
+    .settings-grid { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(270px,.75fr); gap:18px; align-items:start; }
+    .settings-side { position:sticky; top:20px; }
+    .system-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; }
+    .system-stat { padding:11px; border:1px solid var(--line); border-radius:7px; background:#f8fafb; }
+    .system-stat strong { display:block; margin-bottom:2px; font-size:15px; }
+    .model-list { display:grid; gap:12px; margin-top:14px; }
+    .model-option { position:relative; display:grid; grid-template-columns:auto minmax(0,1fr); gap:13px; padding:16px; border:1px solid var(--line); border-radius:10px; background:#fff; cursor:pointer; transition:.15s ease; }
+    .model-option:hover { border-color:#98b9c3; box-shadow:0 6px 18px rgba(24,59,86,.08); }
+    .model-option:has(input:checked) { border-color:var(--accent); background:#f0f9fa; box-shadow:0 0 0 2px rgba(8,126,139,.1); }
+    .model-option input { margin-top:5px; flex:0 0 auto; }
+    .model-option > span { display:block; min-width:0; }
+    .model-title-row { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-start; gap:8px 12px; min-width:0; }
+    .model-title { min-width:0; font-size:16px; font-weight:800; overflow-wrap:anywhere; word-break:break-word; }
+    .model-meta { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 0; }
+    .model-path { display:block; margin-top:8px; color:var(--muted); font-size:12px; overflow-wrap:anywhere; word-break:break-all; }
+    .recommendation { display:block; width:100%; max-width:100%; box-sizing:border-box; margin-top:10px; padding:10px 12px; border-radius:7px; background:#f8fafb; border:1px solid var(--line); overflow-wrap:anywhere; }
+    .recommendation .meta { display:block; line-height:1.45; }
+    .recommendation.recommended { background:#e9f7f0; border-color:#a7d8c2; }
+    .recommendation.acceptable { background:#fff8e4; border-color:#e8c877; }
+    .recommendation.heavy { background:#fff0ef; border-color:#efb5b0; }
+    .recommendation.unknown { background:#edf2f4; }
+    .profile-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:12px; }
+    .selection-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:12px; }
+    .selection-card { display:block; padding:14px; border:1px solid var(--line); border-radius:8px; background:#f8fafb; cursor:pointer; }
+    .selection-card:has(input:checked) { border-color:var(--accent); background:#eaf5f5; }
+    .selection-card strong { display:block; margin:3px 0 4px; }
+    .selection-card span { color:var(--muted); font-size:12px; }
+    .auto-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:14px; }
+    .auto-option { padding:11px 12px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+    .auto-option label { display:flex; align-items:flex-start; gap:8px; margin:0; }
+    .auto-limits { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:12px; }
+    .profile-card { display:block; padding:13px; border:1px solid var(--line); border-radius:8px; background:#f8fafb; cursor:pointer; }
+    .profile-card:has(input:checked) { border-color:var(--accent); background:#eaf5f5; }
+    .profile-card strong { display:block; margin:3px 0 4px; }
+    .profile-card span { color:var(--muted); font-size:12px; }
+    .custom-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:8px; background:#f8fafb; }
+    .custom-grid label { display:grid; gap:5px; color:#40545f; font-size:12px; font-weight:700; }
+    .custom-grid input { width:100%; min-height:38px; border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:inherit; background:#fff; }
+    .settings-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+    .secondary-action { background:#fff; color:var(--accent); }
+    .secondary-action:hover { color:#fff; }
+    .danger-action { background:#fff; border-color:#b42318; color:#b42318; }
+    .danger-action:hover { background:#b42318; border-color:#b42318; color:#fff; }
+    .active-summary { display:grid; gap:9px; }
+    .summary-row { display:flex; justify-content:space-between; gap:12px; padding-bottom:8px; border-bottom:1px solid var(--line); }
+    .summary-row:last-child { border:0; padding-bottom:0; }
+    .summary-row span:first-child { color:var(--muted); }
+    .empty-models { margin-top:14px; padding:22px; border:1px dashed #aab8c1; border-radius:9px; background:#f8fafb; text-align:center; }
+    .settings-note { margin-top:10px; color:var(--muted); font-size:12px; }
+    @media (max-width: 960px) {
+      .settings-grid { grid-template-columns:1fr; }
+      .settings-side { position:static; }
+    }
+    @media (max-width: 720px) {
+      .settings-hero { display:block; }
+      .model-option { grid-template-columns:1fr; }
+      .model-option > input { margin:0 0 4px; }
+      .model-title-row { display:grid; grid-template-columns:1fr; }
+      .profile-grid, .custom-grid, .system-grid, .selection-grid, .auto-options, .auto-limits { grid-template-columns:1fr; }
+      .settings-actions > * { width:100%; }
+    }
+  </style>
 
-  <div style="margin-bottom: 32px;">
-    <h3 style="font-size: 18px; margin-bottom: 12px;">Обучающие примеры</h3>
-    <p class="meta">
-      Система поддерживает одиночное и пакетное добавление обучающих примеров. Для массовой загрузки используйте ZIP-архив
-      с парами <code>*_source.xlsx</code> и <code>*_target.xlsx</code> или наборы файлов source/target.
-    </p>
-    <div class="stats-grid" style="margin:14px 0;">
-      <div style="padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
-        <strong>{{ training_stats.total }}</strong><br><span class="meta">всего</span>
-      </div>
-      <div style="padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
-        <strong>{{ training_stats.available }}</strong><br><span class="meta">доступно</span>
-      </div>
-      <div style="padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
-        <strong>{{ training_stats.with_rule }}</strong><br><span class="meta">с правилом</span>
-      </div>
-      <div style="padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;">
-        <strong>{{ training_stats.broken }}</strong><br><span class="meta">битых</span>
-      </div>
+  <div class="settings-hero">
+    <div>
+      <div class="eyebrow">Конфигурация</div>
+      <h1>Настройки AI</h1>
+      <p class="meta" style="max-width:760px;margin:0;">
+        Выберите локальную GGUF-модель из папки <code>models</code> и профиль производительности для компьютера,
+        на котором запущен сервер SheetNorm. Выбор сохраняется между перезапусками.
+      </p>
     </div>
-    <p style="margin-top: 16px;">
-      <a href="{{ url_for('web.training') }}" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: 500;">
-        Открыть обучение модели
-      </a>
-    </p>
+    <form method="post" action="{{ url_for('web.refresh_ai_models') }}">
+      <button class="secondary-action" type="submit">Обновить список</button>
+    </form>
   </div>
 
-  <div style="margin-bottom: 32px;">
-    <h3 style="font-size: 18px; margin-bottom: 12px;">Информация о системе</h3>
-    <ul class="meta">
-      <li>Папка входных файлов: <code>{{ config.INPUT_DIR }}</code></li>
-      <li>Папка выходных файлов: <code>{{ config.OUTPUT_DIR }}</code></li>
-      <li>Папка обучающих примеров: <code>{{ config.TRAINING_EXAMPLES_DIR }}</code></li>
-      <li>Файл истории: <code>{{ config.HISTORY_FILE }}</code></li>
-      <li>Режим ИИ: <code>{{ config.AI_BACKEND }}</code></li>
-    </ul>
+  <div class="settings-tabs" aria-label="Разделы настроек">
+    <span class="settings-tab active">AI-модель</span>
+    <span class="settings-tab">Система</span>
   </div>
+
+  <div class="settings-grid">
+    <div>
+      <form method="post" action="{{ url_for('web.save_ai_settings') }}" id="ai-model-form">
+        <section class="panel">
+          <h2 style="margin:0 0 5px;font-size:21px;">Подбор модели</h2>
+          <p class="meta">В автоматическом режиме SheetNorm сам выбирает наиболее качественную модель, которая оставляет безопасный запас оперативной памяти.</p>
+          <div class="selection-grid">
+            <label class="selection-card">
+              <input type="radio" name="selection_mode" value="auto" {% if ai_settings.selection_mode == 'auto' %}checked{% endif %}>
+              <strong>Автоматически</strong>
+              <span>Проверить CPU, RAM и GPU, выбрать модель и назначить её для AI-запросов.</span>
+            </label>
+            <label class="selection-card">
+              <input type="radio" name="selection_mode" value="manual" {% if ai_settings.selection_mode == 'manual' %}checked{% endif %}>
+              <strong>Вручную</strong>
+              <span>Администратор сам выбирает модель и профиль производительности.</span>
+            </label>
+          </div>
+          <div class="auto-options" id="auto-selection-options">
+            <div class="auto-option"><label><input type="checkbox" name="auto_activate" {% if ai_settings.auto_activate %}checked{% endif %}><span><strong>Назначать автоматически</strong><br><span class="meta">Модель станет рабочей без ручного нажатия «Активировать».</span></span></label></div>
+            <div class="auto-option"><label><input type="checkbox" name="auto_test" {% if ai_settings.auto_test %}checked{% endif %}><span><strong>Проверять при первом запросе</strong><br><span class="meta">Короткий тест выполняется только после изменения файла или параметров.</span></span></label></div>
+            <div class="auto-option"><label><input type="checkbox" name="reselect_if_unavailable" {% if ai_settings.reselect_if_unavailable %}checked{% endif %}><span><strong>Выбрать другую при ошибке</strong><br><span class="meta">При нехватке памяти или удалённом файле попробовать следующую модель.</span></span></label></div>
+          </div>
+          <div class="auto-limits" id="auto-selection-limits">
+            <label>Минимальный свободный запас RAM, ГБ
+              <input type="number" name="min_free_ram_gb" min="0" max="256" step="0.25" value="{{ ai_settings.min_free_ram_gb }}">
+            </label>
+            <label>Максимальная доля доступной RAM
+              <input type="number" name="max_ram_usage_ratio" min="0.1" max="0.95" step="0.01" value="{{ ai_settings.max_ram_usage_ratio }}">
+            </label>
+          </div>
+          <div class="settings-actions">
+            <button type="submit" formaction="{{ url_for('web.auto_select_ai_model') }}">Подобрать модель сейчас</button>
+          </div>
+          {% if ai_settings.auto_selection_reason %}<div class="hint-box" style="margin-bottom:0;">{{ ai_settings.auto_selection_reason }}</div>{% endif %}
+        </section>
+
+        <section class="panel" id="manual-model-selection">
+          <div class="rule-card-head">
+            <div>
+              <h2 style="margin:0 0 5px;font-size:21px;">Локальные модели</h2>
+              <p class="meta" style="margin:0;">
+                Найдено: {{ ai_models|length }}. Папка: <code>{{ models_dir }}</code>
+              </p>
+            </div>
+            <span class="status {% if ai_settings.backend == 'llama_cpp' %}status-success{% else %}status-created{% endif %}">
+              {% if ai_settings.backend == 'llama_cpp' %}LLM включена{% else %}Fallback{% endif %}
+            </span>
+          </div>
+
+          {% if ai_models %}
+            <div class="model-list">
+              {% for model in ai_models %}
+                <label class="model-option">
+                  <input
+                    type="radio"
+                    name="model_id"
+                    value="{{ model.id }}"
+                    data-manual-control
+                    {% if model.selected or (not ai_settings.selected_model_relative_path and loop.first) %}checked{% endif %}
+                  >
+                  <span>
+                    <span class="model-title-row">
+                      <span class="model-title">{{ model.display_name }}</span>
+                      <span class="badge-row" style="margin:0;">
+                        {% if model.active %}<span class="badge ok">Активна</span>{% endif %}
+                        {% if model.selected and not model.active %}<span class="badge">Выбрана</span>{% endif %}
+                        {% if model.status != 'available' %}<span class="badge warn">{{ model.status }}</span>{% endif %}
+                      </span>
+                    </span>
+                    <span class="model-meta">
+                      <span class="badge">{{ model.size_gb }} ГБ</span>
+                      {% if model.family_hint %}<span class="badge">{{ model.family_hint }}</span>{% endif %}
+                      {% if model.parameter_hint %}<span class="badge">{{ model.parameter_hint }}B</span>{% endif %}
+                      {% if model.quantization_hint %}<span class="badge">{{ model.quantization_hint }}</span>{% endif %}
+                      <span class="badge">{{ model.metadata_source }}</span>
+                    </span>
+                    <span class="model-path">{{ model.relative_path }}</span>
+                    <span class="recommendation {{ model.recommendation.status }}">
+                      <strong>{{ model.recommendation.label }}</strong><br>
+                      <span class="meta">{{ model.recommendation.reason }}</span>
+                      {% if model.status_message %}<div class="settings-note">{{ model.status_message }}</div>{% endif %}
+                    </span>
+                  </span>
+                </label>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-models">
+              <strong>В папке models не найдено GGUF-моделей</strong>
+              <p class="meta">Поместите файл <code>*.gguf</code> в <code>{{ models_dir }}</code>, затем нажмите «Обновить список».</p>
+            </div>
+          {% endif %}
+        </section>
+
+        <section class="panel">
+          <h2 style="margin:0 0 5px;font-size:21px;">Профиль производительности</h2>
+          <p class="meta" style="margin:0;">Профиль определяет окно контекста, количество потоков и размер batch.</p>
+          <div class="profile-grid">
+            <label class="profile-card">
+              <input type="radio" name="performance_profile" data-manual-control value="economy" {% if ai_settings.performance_profile == 'economy' %}checked{% endif %}>
+              <strong>Экономичный</strong>
+              <span>Для слабых ПК и ноутбуков. Меньше RAM и контекст.</span>
+            </label>
+            <label class="profile-card">
+              <input type="radio" name="performance_profile" data-manual-control value="balanced" {% if ai_settings.performance_profile == 'balanced' %}checked{% endif %}>
+              <strong>Сбалансированный</strong>
+              <span>Рекомендуемый режим для большинства систем.</span>
+            </label>
+            <label class="profile-card">
+              <input type="radio" name="performance_profile" data-manual-control value="performance" {% if ai_settings.performance_profile == 'performance' %}checked{% endif %}>
+              <strong>Производительный</strong>
+              <span>Для мощных CPU или доступного GPU.</span>
+            </label>
+            <label class="profile-card">
+              <input type="radio" name="performance_profile" data-manual-control value="custom" {% if ai_settings.performance_profile == 'custom' %}checked{% endif %}>
+              <strong>Пользовательский</strong>
+              <span>Ручная настройка параметров llama.cpp.</span>
+            </label>
+          </div>
+
+          <div class="custom-grid" id="custom-profile-fields">
+            <label>Контекст
+              <input type="number" name="context_tokens" min="512" max="32768" value="{{ ai_settings.context_tokens }}">
+            </label>
+            <label>Максимум токенов ответа
+              <input type="number" name="max_completion_tokens" min="64" max="8192" value="{{ ai_settings.max_completion_tokens }}">
+            </label>
+            <label>Потоки CPU
+              <input type="number" name="n_threads" min="1" max="128" value="{{ ai_settings.n_threads }}">
+            </label>
+            <label>Batch
+              <input type="number" name="n_batch" min="16" max="2048" value="{{ ai_settings.n_batch }}">
+            </label>
+            <label>Слои на GPU
+              <input type="number" name="n_gpu_layers" min="-1" max="999" value="{{ ai_settings.n_gpu_layers }}">
+            </label>
+            <label>Temperature
+              <input type="number" name="temperature" min="0" max="2" step="0.05" value="{{ ai_settings.temperature }}">
+            </label>
+          </div>
+
+          <div class="panel" style="margin:16px 0 0;box-shadow:none;">
+            <h3 style="margin-top:0;">Управление памятью модели</h3>
+            <div class="profile-grid">
+              <label class="profile-card">
+                <input type="radio" name="memory_mode" value="economy" {% if ai_settings.memory_mode == 'economy' %}checked{% endif %}>
+                <strong>Экономичный</strong><span>Выгружать модель после простоя и возвращать RAM системе.</span>
+              </label>
+              <label class="profile-card">
+                <input type="radio" name="memory_mode" value="fast" {% if ai_settings.memory_mode == 'fast' %}checked{% endif %}>
+                <strong>Быстрый</strong><span>Держать модель в памяти для быстрых повторных запросов.</span>
+              </label>
+              <label class="profile-card">
+                <input type="radio" name="memory_mode" value="manual" {% if ai_settings.memory_mode == 'manual' %}checked{% endif %}>
+                <strong>Вручную</strong><span>Выгружать модель только кнопкой администратора.</span>
+              </label>
+            </div>
+            <label style="margin-top:12px;">Выгружать после простоя, секунд
+              <input type="number" name="idle_unload_seconds" min="30" max="86400" value="{{ ai_settings.idle_unload_seconds }}">
+            </label>
+            <p class="settings-note">Для компьютера с ограниченной RAM рекомендуется экономичный режим и 300 секунд.</p>
+          </div>
+
+          <div class="settings-actions">
+            <button type="submit">Сохранить настройки</button>
+            <button type="submit" class="secondary-action" formaction="{{ url_for('web.test_ai_model') }}">Протестировать</button>
+            <button type="submit" formaction="{{ url_for('web.activate_ai_model') }}" {% if not ai_models %}disabled{% endif %}>Протестировать и активировать</button>
+          </div>
+          <p class="settings-note">
+            В автоматическом режиме ручная активация не нужна. В ручном режиме предыдущая модель сохраняется, если тест новой завершился ошибкой.
+          </p>
+        </section>
+      </form>
+
+      <section class="panel">
+        <h2 style="margin:0 0 12px;font-size:21px;">Обучающие примеры</h2>
+        <div class="stats-grid" style="margin:0 0 14px;">
+          <div class="system-stat"><strong>{{ training_stats.total }}</strong><span class="meta">всего</span></div>
+          <div class="system-stat"><strong>{{ training_stats.available }}</strong><span class="meta">доступно</span></div>
+          <div class="system-stat"><strong>{{ training_stats.with_rule }}</strong><span class="meta">с правилом</span></div>
+          <div class="system-stat"><strong>{{ training_stats.broken }}</strong><span class="meta">битых</span></div>
+        </div>
+        <a class="action-link" href="{{ url_for('web.training') }}">Открыть обучающие примеры</a>
+      </section>
+    </div>
+
+    <aside class="settings-side">
+      <section class="panel">
+        <h3>Активный режим</h3>
+        <div class="active-summary">
+          <div class="summary-row"><span>Режим выбора</span><strong>{% if ai_settings.selection_mode == 'auto' %}Автоматический{% else %}Ручной{% endif %}</strong></div>
+          <div class="summary-row"><span>Модель для AI</span><strong style="text-align:right;overflow-wrap:anywhere;">{{ model_manager_status.active_model_name or 'Fallback без LLM' }}</strong></div>
+          <div class="summary-row"><span>Загружена в RAM</span><strong>{% if model_manager_status.loaded %}Да{% else %}Нет{% endif %}</strong></div>
+          <div class="summary-row"><span>Состояние</span><strong style="text-align:right;">{{ model_manager_status.status_label }}</strong></div>
+          <div class="summary-row"><span>Профиль</span><strong>{% if ai_settings.performance_profile == 'economy' %}Экономичный{% elif ai_settings.performance_profile == 'performance' %}Производительный{% elif ai_settings.performance_profile == 'custom' %}Пользовательский{% else %}Сбалансированный{% endif %}</strong></div>
+          <div class="summary-row"><span>Режим памяти</span><strong>{% if ai_settings.memory_mode == 'economy' %}Экономичный{% elif ai_settings.memory_mode == 'manual' %}Ручной{% else %}Быстрый{% endif %}</strong></div>
+          <div class="summary-row"><span>RAM процесса</span><strong>{{ model_manager_status.process_memory_mb or '—' }} МБ</strong></div>
+          <div class="summary-row"><span>PID AI-процесса</span><strong>{{ model_manager_status.process_id or '—' }}</strong></div>
+          {% if model_manager_status.next_unload_seconds is not none %}<div class="summary-row"><span>Автовыгрузка</span><strong>через {{ model_manager_status.next_unload_seconds }} с</strong></div>{% endif %}
+          <div class="summary-row"><span>Проверка модели</span><strong>{% if ai_settings.last_test_status == 'success' %}Успешно{% elif ai_settings.last_test_status == 'failed' %}Ошибка{% elif ai_settings.last_test_status == 'pending' %}При первом запросе{% else %}Не выполнялась{% endif %}</strong></div>
+        </div>
+        {% if ai_settings.last_test_message %}<div class="hint-box" style="margin-bottom:0;">{{ ai_settings.last_test_message }}</div>{% endif %}
+        {% if model_manager_status.error %}<div class="warning-box" style="margin-bottom:0;">{{ model_manager_status.error }}</div>{% endif %}
+        <div class="button-row" style="margin-top:14px;">
+          <form method="post" action="{{ url_for('web.unload_ai_model') }}" style="flex:1;">
+            <button type="submit" class="secondary-action" style="width:100%;">Выгрузить модель из RAM</button>
+          </form>
+          <form method="post" action="{{ url_for('web.activate_ai_fallback') }}" style="flex:1;">
+            <button type="submit" class="danger-action" style="width:100%;">Отключить LLM</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h3>Среда сервера</h3>
+        <p class="meta">Показаны характеристики компьютера или контейнера, где запущен SheetNorm, а не браузера.</p>
+        <div class="system-grid">
+          <div class="system-stat"><strong>{{ hardware.physical_cpu_count }}</strong><span class="meta">физических ядер</span></div>
+          <div class="system-stat"><strong>{{ hardware.logical_cpu_count }}</strong><span class="meta">логических ядер</span></div>
+          <div class="system-stat"><strong>{{ hardware.total_ram_gb or '—' }} ГБ</strong><span class="meta">общая RAM</span></div>
+          <div class="system-stat"><strong>{{ hardware.available_ram_gb or '—' }} ГБ</strong><span class="meta">доступная RAM</span></div>
+          <div class="system-stat"><strong>{{ hardware.gpu_backend }}</strong><span class="meta">режим</span></div>
+          <div class="system-stat"><strong>{{ hardware.gpu_vram_gb or '—' }} ГБ</strong><span class="meta">GPU VRAM</span></div>
+        </div>
+        {% if hardware.gpu_name %}<p class="settings-note">GPU: {{ hardware.gpu_name }}</p>{% endif %}
+        {% if hardware.container_memory_limit_gb %}<p class="settings-note">Лимит контейнера: {{ hardware.container_memory_limit_gb }} ГБ</p>{% endif %}
+      </section>
+
+      <section class="panel">
+        <h3>Фоновые задачи</h3>
+        <div class="active-summary">
+          <div class="summary-row"><span>Режим</span><strong>{{ worker_status.mode }}</strong></div>
+          <div class="summary-row"><span>Активных задач</span><strong>{{ worker_status.active_count }}</strong></div>
+          <div class="summary-row"><span>Потоков worker</span><strong>{{ worker_status.max_workers }}</strong></div>
+          <div class="summary-row"><span>PID web/worker</span><strong>{{ worker_status.process_id or '—' }}</strong></div>
+        </div>
+        {% if worker_status.active_jobs %}<p class="settings-note">Активные ID: {{ worker_status.active_jobs|join(', ') }}</p>{% else %}<p class="settings-note">Сейчас фоновые задачи не выполняются.</p>{% endif %}
+        {% if worker_status.mode == 'thread' %}<p class="settings-note">Локальный thread-режим не зависит от вкладки браузера, но задачи не переживают перезапуск сервера. Для серверного развёртывания используйте Redis/RQ.</p>{% endif %}
+      </section>
+
+      <section class="panel">
+        <h3>Что означают профили</h3>
+        <ul class="meta" style="padding-left:18px;margin-bottom:0;">
+          <li><strong>Экономичный:</strong> 2048 токенов, до 4 CPU-потоков.</li>
+          <li><strong>Сбалансированный:</strong> 4096 токенов, до 8 потоков.</li>
+          <li><strong>Производительный:</strong> 8192 токенов и GPU offload при наличии.</li>
+        </ul>
+        <p class="settings-note">Рекомендация приблизительная. Реальная нагрузка зависит от GGUF, контекста и сборки llama.cpp.</p>
+      </section>
+    </aside>
+  </div>
+
+  <script>
+    (() => {
+      const profileInputs = document.querySelectorAll('input[name="performance_profile"]');
+      const customFields = document.querySelectorAll('#custom-profile-fields input');
+      const selectionInputs = document.querySelectorAll('input[name="selection_mode"]');
+      const manualControls = document.querySelectorAll('[data-manual-control]');
+      const manualSection = document.getElementById('manual-model-selection');
+      const updateState = () => {
+        const profile = document.querySelector('input[name="performance_profile"]:checked');
+        const selection = document.querySelector('input[name="selection_mode"]:checked');
+        const automatic = !selection || selection.value === 'auto';
+        const custom = !automatic && profile && profile.value === 'custom';
+        manualControls.forEach((field) => { field.disabled = automatic; });
+        customFields.forEach((field) => { field.disabled = !custom; });
+        document.getElementById('custom-profile-fields').style.opacity = custom ? '1' : '.55';
+        if (manualSection) manualSection.style.opacity = automatic ? '.65' : '1';
+      };
+      profileInputs.forEach((input) => input.addEventListener('change', updateState));
+      selectionInputs.forEach((input) => input.addEventListener('change', updateState));
+      updateState();
+    })();
+  </script>
 {% endblock %}

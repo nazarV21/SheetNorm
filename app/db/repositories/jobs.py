@@ -25,6 +25,10 @@ class DBJobsRepository:
         workspace_id: str | None = None,
         template_id: str | None = None,
         template_version_id: str | None = None,
+        job_kind: str = "conversion",
+        selected_sheet: str | None = None,
+        execution_mode: str | None = None,
+        assistant_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         existing = db.session.get(ProcessingJob, job_id)
         if existing:
@@ -39,6 +43,10 @@ class DBJobsRepository:
             rule_id=rule_id,
             rule_name=rule_name,
             original_instruction=original_instruction,
+            job_kind=job_kind,
+            selected_sheet=selected_sheet,
+            execution_mode=execution_mode,
+            assistant_state=dict(assistant_state or {}),
         )
         db.session.add(job)
         db.session.add(
@@ -110,6 +118,8 @@ class DBJobsRepository:
         job = db.session.get(ProcessingJob, job_id)
         if not job:
             return None
+        if job.status == "cancelled":
+            return self._serialize(job)
         report = QualityReport.query.filter_by(job_id=job_id).one_or_none()
         if report is None:
             report = QualityReport(job_id=job_id)
@@ -145,6 +155,22 @@ class DBJobsRepository:
             original_instruction=original_instruction,
             improved_instruction=improved_instruction,
         )
+
+
+    def update_context(self, job_id: str, **changes: Any) -> dict[str, Any] | None:
+        job = db.session.get(ProcessingJob, job_id)
+        if not job:
+            return None
+        allowed = {
+            "job_kind", "selected_sheet", "execution_mode", "resume_step",
+            "assistant_state", "original_instruction", "improved_instruction",
+            "rule_id", "rule_name",
+        }
+        for key, value in changes.items():
+            if key in allowed and hasattr(job, key):
+                setattr(job, key, value)
+        db.session.commit()
+        return self._serialize(job)
 
     def append_error(
         self,
